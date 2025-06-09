@@ -11,6 +11,8 @@ Data loading utilities for GNN-Coupled MoE models.
 import torch
 from torch.utils.data import Dataset, DataLoader
 import random
+import os
+from transformers import AutoTokenizer
 
 from .config import MoEConfig
 
@@ -35,23 +37,63 @@ class SimpleTextDataset(Dataset):
         }
 
 def load_data(config: MoEConfig):
-    print(f"🚀 Setting up data loading for {config.dataset_name} / {config.dataset_config_name}...")
+    print(f"🚀 Setting up data loading...")
+    
     try:
-        from transformers import AutoTokenizer
-        import datasets as hf_datasets
-        
         tokenizer = AutoTokenizer.from_pretrained('gpt2')
         tokenizer.pad_token = tokenizer.eos_token
-        
         if config.vocab_size != tokenizer.vocab_size:
             config.vocab_size = tokenizer.vocab_size
 
-        train_dataset_raw = hf_datasets.load_dataset(config.dataset_name, config.dataset_config_name, split="train")
-        eval_dataset_raw = hf_datasets.load_dataset(config.dataset_name, config.dataset_config_name, split="validation")
+        if config.dataset_source == "huggingface":
+            print(f"   Loading from Hugging Face Hub: {config.dataset_name} / {config.dataset_config_name}")
+            import datasets as hf_datasets
+            train_dataset_raw = hf_datasets.load_dataset(config.dataset_name, config.dataset_config_name, split="train")
+            eval_dataset_raw = hf_datasets.load_dataset(config.dataset_name, config.dataset_config_name, split="validation")
+            train_texts_all = [line.strip() for item in train_dataset_raw for line in item['text'].splitlines() if len(line.strip()) > 30]
+            eval_texts_all = [line.strip() for item in eval_dataset_raw for line in item['text'].splitlines() if len(line.strip()) > 30]
+            data_mode = f"HF_{config.dataset_name}"
         
-        train_texts_all = [line.strip() for item in train_dataset_raw for line in item['text'].splitlines() if len(line.strip()) > 30]
-        eval_texts_all = [line.strip() for item in eval_dataset_raw for line in item['text'].splitlines() if len(line.strip()) > 30]
-        
+        elif config.dataset_source == "local_file":
+            print(f"   Loading from local file: {config.dataset_name}")
+            all_texts = []
+            file_ext = os.path.splitext(config.dataset_name)[1]
+
+            if file_ext == ".txt":
+                with open(config.dataset_name, 'r', encoding='utf-8') as f:
+                    all_texts = [line.strip() for line in f if len(line.strip()) > 30]
+            
+            elif file_ext in [".json", ".jsonl"]:
+                import json
+                with open(config.dataset_name, 'r', encoding='utf-8') as f:
+                    if file_ext == ".jsonl":
+                        json_data = [json.loads(line) for line in f]
+                    else:
+                        json_data = json.load(f)
+                    
+                    # Heuristic to find the text field
+                    for item in json_data:
+                        if "text" in item:
+                            all_texts.append(item["text"])
+                        elif "question" in item and "answer" in item:
+                            # Handle the user's specific GRPO format
+                            text = f"Question: {item.get('question', '')}\nReasoning: {item.get('reasoning', '')}\nAnswer: {item.get('answer', '')}"
+                            all_texts.append(text)
+                        else:
+                            print(f"   ⚠️ Warning: Could not find a 'text' or 'question'/'answer' key in JSON object: {item}")
+
+            else:
+                raise ValueError(f"Unsupported local file format: {file_ext}")
+
+            random.shuffle(all_texts)
+            split_idx = int(len(all_texts) * 0.9)
+            train_texts_all = all_texts[:split_idx]
+            eval_texts_all = all_texts[split_idx:]
+            data_mode = f"LOCAL_{os.path.basename(config.dataset_name)}"
+
+        else:
+            raise ValueError(f"Unknown dataset_source: {config.dataset_source}")
+
         random.shuffle(train_texts_all)
         random.shuffle(eval_texts_all)
 
@@ -64,10 +106,8 @@ def load_data(config: MoEConfig):
         train_dataset = SimpleTextDataset(train_texts, tokenizer, config.max_seq_length)
         eval_dataset = SimpleTextDataset(eval_texts, tokenizer, config.max_seq_length)
         
-        data_mode = f"REAL_{config.dataset_config_name.upper().replace('-', '_')}"
-        
     except Exception as e:
-        from transformers import AutoTokenizer
+        print(f"   ⚠️ Error loading data: {e}. Falling back to synthetic data.")
         tokenizer = AutoTokenizer.from_pretrained('gpt2')
         tokenizer.pad_token = tokenizer.eos_token
         if config.vocab_size != tokenizer.vocab_size:

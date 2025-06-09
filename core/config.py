@@ -6,7 +6,7 @@ config.py
 Unified configuration for all MoE model architectures.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Optional, List
 
 @dataclass
@@ -46,11 +46,11 @@ class MoEConfig:
 
     # --- Core Model Parameters ---
     vocab_size: int = 50257  # GPT-2 vocab size
-    max_seq_length: int = 1024
-    embed_dim: int = 256
-    num_layers: int = 4
+    max_seq_length: int = 512
+    embed_dim: int = 128
+    num_layers: int = 2
     num_heads: int = 4
-    num_experts: int = 8
+    num_experts: int = 4
     dropout_rate: float = 0.1
     num_parameters: Optional[int] = None # To be calculated at runtime
 
@@ -63,14 +63,16 @@ class MoEConfig:
     ghost: GhostParams = field(default_factory=GhostParams)
 
     # --- Training Parameters ---
+    training_loop: str = "standard"
     epochs: int = 5
-    batch_size: int = 16
+    batch_size: int = 8
     learning_rate: float = 1e-4
     max_batches_per_epoch: int = -1  # -1 for all batches
     eval_every: int = 100
     max_steps: Optional[int] = None # Calculated at runtime if not set
 
     # --- Dataset Parameters ---
+    dataset_source: str = "huggingface" # or "local_file"
     dataset_name: str = "wikitext"
     dataset_config_name: str = "wikitext-2-v1"
     num_train_samples: int = 2000
@@ -109,6 +111,24 @@ class MoEConfig:
         """Converts the dataclass to a serializable dict."""
         d = field_to_dict(self)
         return d
+
+    @classmethod
+    def from_dict(cls, d):
+        """Creates a config object from a dictionary, handling nested dataclasses."""
+        hgnn_params_dict = d.pop('hgnn', {})
+        ghost_params_dict = d.pop('ghost', {})
+
+        # Create the main config, ignoring nested dataclass fields for now
+        main_config_fields = {f.name for f in fields(cls)}
+        main_config_args = {k: v for k, v in d.items() if k in main_config_fields}
+        
+        config = cls(**main_config_args)
+        
+        # Create and assign the nested dataclasses
+        config.hgnn = HGNNParams(**hgnn_params_dict)
+        config.ghost = GhostParams(**ghost_params_dict)
+        
+        return config
 
 def field_to_dict(obj):
     """Recursively convert dataclass to dict."""

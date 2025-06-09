@@ -110,8 +110,8 @@ def log_training_metrics(step, total_loss, base_loss, orthogonality_loss, model,
         if saturation_metrics:
             print(f"  Saturation: {saturation_metrics.get('saturation_level', 0):.4f}, Ortho Score: {saturation_metrics.get('orthogonality_score', 0):.4f}")
 
-def train_model(model: MoEModel, optimizer, scheduler, train_loader, eval_loader, device, config: MoEConfig,
-                resume_from_epoch=0, resume_step=0, initial_best_loss=float('inf')):
+def standard_training_loop(model: MoEModel, optimizer, scheduler, train_loader, eval_loader, device, config: MoEConfig,
+                           resume_from_epoch=0, resume_step=0, initial_best_loss=float('inf')):
     
     actual_batches_per_epoch = len(train_loader) if config.max_batches_per_epoch == -1 else min(len(train_loader), config.max_batches_per_epoch)
     total_steps = config.max_steps
