@@ -304,15 +304,20 @@ class GeometricTrainingController(TrainingController):
         # Import safe helper function
         from .geometric_training import safe_item
         
-        # Update metrics
+        # Update metrics - include both geometric AND architectural metrics
         current_metrics = {
             'learning_rate': safe_item(self.rotation_optimizer.param_groups[0]['lr']),
             'expert_learning_rate': safe_item(self.expert_optimizer.param_groups[0]['lr']),
             'rotation_angles': rotation_angles.detach().cpu().numpy().tolist(),
-            'rotation_efficiency_loss': safe_item(loss_components.get('rotation_efficiency_loss', 0.0)),
+            'rotation_efficiency': safe_item(loss_components.get('rotation_efficiency_loss', 0.0)),
             'expert_specialization': safe_item(loss_components.get('specialization_loss', 0.0)),
-            'geometric_loss_components': loss_components
+            'geometric_components': loss_components,
+            'training_mode': 'geometric'
         }
+        
+        # IMPORTANT: Also capture underlying architecture metrics (HGNN, Ghost, etc.)
+        architecture_metrics = self._extract_architecture_metrics()
+        current_metrics.update(architecture_metrics)
         
         self.update_metrics(geometric_loss.item(), current_metrics)
         
@@ -351,6 +356,126 @@ class GeometricTrainingController(TrainingController):
         """Return both rotation and expert schedulers."""
         return [self.rotation_scheduler, self.expert_scheduler]
     
+    def _extract_architecture_metrics(self) -> Dict[str, Any]:
+        """Extract metrics from underlying architecture (HGNN, Ghost, etc.)."""
+        architecture_metrics = {}
+        
+        # Extract expert connection data for HGNN architectures
+        if hasattr(self.model, 'moe_layers'):
+            for layer_idx, layer in enumerate(self.model.moe_layers):
+                if hasattr(layer, 'hgnn_coupler') and layer.hgnn_coupler is not None:
+                    # Extract HGNN adjacency matrix or edge weights
+                    if hasattr(layer.hgnn_coupler, 'get_edge_weights'):
+                        edge_weights = layer.hgnn_coupler.get_edge_weights()
+                        if edge_weights is not None:
+                            architecture_metrics['expert_connections'] = {
+                                'edge_weights': edge_weights.detach().cpu().numpy().tolist(),
+                                'layer': layer_idx
+                            }
+                    elif hasattr(layer.hgnn_coupler, 'adjacency_matrix'):
+                        adj_matrix = layer.hgnn_coupler.adjacency_matrix
+                        if adj_matrix is not None:
+                            architecture_metrics['expert_connections'] = {
+                                'adjacency_matrix': adj_matrix.detach().cpu().numpy().tolist(),
+                                'layer': layer_idx
+                            }
+        
+        # Extract ghost expert metrics
+        if hasattr(self.model, 'ghost_experts') or self.config.ghost.num_ghost_experts > 0:
+            # Extract ghost activation levels
+            ghost_activations = []
+            ghost_loads = {}
+            
+            # Check for ghost expert activations
+            if hasattr(self.model, 'moe_layers'):
+                for layer in self.model.moe_layers:
+                    if hasattr(layer, 'ghost_experts') and layer.ghost_experts is not None:
+                        if hasattr(layer.ghost_experts, 'activation_levels'):
+                            ghost_activations.extend(layer.ghost_experts.activation_levels.detach().cpu().numpy().tolist())
+                        elif hasattr(layer.ghost_experts, 'get_activation_levels'):
+                            activations = layer.ghost_experts.get_activation_levels()
+                            if activations is not None:
+                                ghost_activations.extend(activations.detach().cpu().numpy().tolist())
+            
+            if ghost_activations:
+                architecture_metrics['ghost_activations'] = ghost_activations
+            
+            # Extract saturation level if available
+            if hasattr(self.model, 'get_saturation_level'):
+                saturation = self.model.get_saturation_level()
+                if saturation is not None:
+                    architecture_metrics['saturation_level'] = saturation
+            
+            # Extract expert loads (both primary and ghost)
+            expert_loads = self._extract_expert_loads()
+            if expert_loads:
+                architecture_metrics['expert_loads'] = expert_loads
+        
+        # Extract orthogonality score
+        orthogonality_score = self._compute_expert_orthogonality()
+        if orthogonality_score > 0:
+            architecture_metrics['orthogonality_score'] = orthogonality_score
+        
+        return architecture_metrics
+    
+    def _extract_expert_loads(self) -> Dict[str, Any]:
+        """Extract expert load distribution."""
+        loads = {}
+        
+        if hasattr(self.model, 'moe_layers'):
+            primary_loads = []
+            ghost_loads = []
+            
+            for layer in self.model.moe_layers:
+                # Primary expert loads
+                if hasattr(layer, 'experts'):
+                    primary_loads.extend([1.0] * len(layer.experts))  # Simplified - all experts active
+                
+                # Ghost expert loads  
+                if hasattr(layer, 'ghost_experts') and layer.ghost_experts is not None:
+                    if hasattr(layer.ghost_experts, 'experts'):
+                        ghost_loads.extend([1.0] * len(layer.ghost_experts.experts))  # Simplified
+            
+            if primary_loads:
+                loads['primary'] = primary_loads
+            if ghost_loads:
+                loads['ghost'] = ghost_loads
+        
+        return loads
+    
+    def _compute_expert_orthogonality(self) -> float:
+        """Compute orthogonality metric for experts (same as StandardTrainingController)."""
+        if not hasattr(self.model, 'moe_layers'):
+            return 0.0
+        
+        total_orthogonality = 0.0
+        num_layers = 0
+        
+        for layer in self.model.moe_layers:
+            if hasattr(layer, 'experts'):
+                # Get expert weight matrices
+                expert_weights = []
+                for expert in layer.experts:
+                    if hasattr(expert, 'linear1'):
+                        expert_weights.append(expert.linear1.weight.flatten())
+                
+                if len(expert_weights) > 1:
+                    # Compute pairwise orthogonality
+                    expert_matrix = torch.stack(expert_weights)
+                    normalized_weights = F.normalize(expert_matrix, dim=1)
+                    similarity_matrix = torch.mm(normalized_weights, normalized_weights.t())
+                    
+                    # Off-diagonal elements should be close to 0 for orthogonality
+                    mask = ~torch.eye(similarity_matrix.size(0), dtype=torch.bool, device=similarity_matrix.device)
+                    off_diagonal_mean = similarity_matrix[mask].abs().mean()
+                    
+                    # Convert to orthogonality score (1 - similarity)
+                    orthogonality = 1.0 - off_diagonal_mean.item()
+                    total_orthogonality += orthogonality
+                    num_layers += 1
+        
+        return total_orthogonality / num_layers if num_layers > 0 else 0.0
+
     def get_current_metrics(self) -> Dict[str, Any]:
         """Return current geometric training metrics."""
         if not self.metrics_history['loss']:
