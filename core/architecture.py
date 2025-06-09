@@ -308,7 +308,12 @@ class PrimaryGhostLRScheduler:
             lr_decay_factor = current_primary_lr / self.initial_primary_lr
             ghost_lr_factor = 1.0 - lr_decay_factor if self.ghost_lr_coupling == "inverse" else 1.0
             for activation_level in ghost_activation_levels:
-                ghost_lrs.append(self.initial_ghost_lr * ghost_lr_factor * activation_level.item())
+                # Handle both tensor and scalar values
+                if torch.is_tensor(activation_level):
+                    activation_value = activation_level.item()
+                else:
+                    activation_value = float(activation_level)
+                ghost_lrs.append(self.initial_ghost_lr * ghost_lr_factor * activation_value)
         
         return current_primary_lr, ghost_lrs
 

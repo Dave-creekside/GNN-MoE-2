@@ -214,9 +214,9 @@ class GeometricTrainingController(TrainingController):
         
         # Initialize geometric components
         if config.geometric.lambda_cognitive_rotations:
-            self.data_rotator = LambdaCalculusGeometricRotator(config)
+            self.data_rotator = LambdaCalculusGeometricRotator(config).to(self.device)
         else:
-            self.data_rotator = GeometricDataRotator(config)
+            self.data_rotator = GeometricDataRotator(config).to(self.device)
         
         self.loss_computer = GeometricLossComputer(config)
         
@@ -301,13 +301,16 @@ class GeometricTrainingController(TrainingController):
         self.expert_scheduler.step([0])  # Placeholder for ghost activations
         self.expert_optimizer.zero_grad()
         
+        # Import safe helper function
+        from .geometric_training import safe_item
+        
         # Update metrics
         current_metrics = {
-            'learning_rate': self.rotation_optimizer.param_groups[0]['lr'],
-            'expert_learning_rate': self.expert_optimizer.param_groups[0]['lr'],
+            'learning_rate': safe_item(self.rotation_optimizer.param_groups[0]['lr']),
+            'expert_learning_rate': safe_item(self.expert_optimizer.param_groups[0]['lr']),
             'rotation_angles': rotation_angles.detach().cpu().numpy().tolist(),
-            'rotation_efficiency_loss': loss_components.get('rotation_efficiency_loss', 0.0),
-            'expert_specialization': loss_components.get('specialization_loss', 0.0),
+            'rotation_efficiency_loss': safe_item(loss_components.get('rotation_efficiency_loss', 0.0)),
+            'expert_specialization': safe_item(loss_components.get('specialization_loss', 0.0)),
             'geometric_loss_components': loss_components
         }
         

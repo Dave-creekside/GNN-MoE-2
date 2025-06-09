@@ -17,6 +17,13 @@ from typing import List, Dict, Tuple, Optional
 from .config import MoEConfig
 
 
+def safe_item(value):
+    """Safely extract scalar value from tensor or return scalar as-is."""
+    if torch.is_tensor(value):
+        return value.item()
+    return value
+
+
 class GeometricDataRotator(nn.Module):
     """
     Learns optimal theta rotations for presenting data to orthogonal experts.

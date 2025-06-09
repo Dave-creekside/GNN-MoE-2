@@ -220,6 +220,41 @@ def standard_training_loop(model: MoEModel, optimizer, scheduler, train_loader, 
     return training_log, best_eval_loss
 
 
+def train_model(model, optimizer, scheduler, train_loader, eval_loader, device, config, 
+                resume_from_epoch=0, resume_step=0, initial_best_loss=float('inf')):
+    """
+    Main training function that dispatches to the appropriate training loop based on config.
+    """
+    
+    # Determine which training system to use
+    if hasattr(config, 'training_mode') and config.training_mode == "geometric":
+        # Use new controller-based training system
+        return controller_training_loop(
+            model=model,
+            train_loader=train_loader,
+            eval_loader=eval_loader,
+            device=device,
+            config=config,
+            resume_from_epoch=resume_from_epoch,
+            resume_step=resume_step,
+            initial_best_loss=initial_best_loss
+        )
+    else:
+        # Use legacy standard training system
+        return standard_training_loop(
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            train_loader=train_loader,
+            eval_loader=eval_loader,
+            device=device,
+            config=config,
+            resume_from_epoch=resume_from_epoch,
+            resume_step=resume_step,
+            initial_best_loss=initial_best_loss
+        )
+
+
 def controller_training_loop(model: MoEModel, train_loader, eval_loader, device, config: MoEConfig,
                            resume_from_epoch=0, resume_step=0, initial_best_loss=float('inf')):
     """New training loop using the training controller pattern."""

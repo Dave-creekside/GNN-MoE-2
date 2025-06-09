@@ -14,7 +14,7 @@ import random
 import json
 from dataclasses import fields
 
-from core.config import MoEConfig, HGNNParams, GhostParams
+from core.config import MoEConfig, HGNNParams, GhostParams, GeometricTrainingConfig
 from core.architecture import MoEModel, create_dynamic_optimizer, PrimaryGhostLRScheduler
 from core.training import load_checkpoint, train_model
 from core.data import load_data
@@ -72,6 +72,18 @@ def get_args():
     parser.add_argument('--num_train_samples', type=int)
     parser.add_argument('--num_eval_samples', type=int)
     parser.add_argument('--num_workers_dataloader', type=int)
+    parser.add_argument('--dataset_source', type=str, choices=['huggingface', 'local_file'], help="Source type for dataset.")
+    parser.add_argument('--training_mode', type=str, choices=['standard', 'geometric'], help="Training paradigm to use.")
+
+    # --- Geometric Training Arguments ---
+    parser.add_argument('--geometric_enabled', action='store_true', help="Enable geometric training.")
+    parser.add_argument('--geometric_learning_rate', type=float, help="Learning rate for rotation parameters.")
+    parser.add_argument('--geometric_expert_learning_rate', type=float, help="Learning rate for expert parameters.")
+    parser.add_argument('--geometric_rotation_dimensions', type=int, help="Number of rotation dimensions.")
+    parser.add_argument('--geometric_orthogonality_weight', type=float, help="Weight for orthogonality loss.")
+    parser.add_argument('--geometric_rotation_efficiency_weight', type=float, help="Weight for rotation efficiency loss.")
+    parser.add_argument('--geometric_specialization_weight', type=float, help="Weight for specialization loss.")
+    parser.add_argument('--geometric_lambda_cognitive_rotations', action='store_true', help="Enable lambda calculus cognitive rotations.")
 
     # --- HGNNParams Arguments ---
     parser.add_argument('--hgnn_num_layers', type=int)
@@ -105,10 +117,26 @@ if __name__ == "__main__":
     # Separate nested config args
     hgnn_args = {k.replace('hgnn_', '', 1): v for k, v in config_args.items() if k.startswith('hgnn_')}
     ghost_args = {k.replace('ghost_', '', 1): v for k, v in config_args.items() if k.startswith('ghost_')}
+    # Map command-line arguments to GeometricTrainingConfig parameter names
+    geometric_arg_mapping = {
+        'geometric_enabled': 'enabled',
+        'geometric_learning_rate': 'geometric_learning_rate',
+        'geometric_expert_learning_rate': 'expert_learning_rate',
+        'geometric_rotation_dimensions': 'rotation_dimensions',
+        'geometric_orthogonality_weight': 'orthogonality_weight',
+        'geometric_rotation_efficiency_weight': 'rotation_efficiency_weight',
+        'geometric_specialization_weight': 'specialization_weight',
+        'geometric_lambda_cognitive_rotations': 'lambda_cognitive_rotations'
+    }
+    
+    geometric_args = {}
+    for cli_arg, config_param in geometric_arg_mapping.items():
+        if cli_arg in config_args:
+            geometric_args[config_param] = config_args[cli_arg]
     
     # Remove nested args from main config dict
     for k in list(config_args.keys()):
-        if k.startswith('hgnn_') or k.startswith('ghost_'):
+        if k.startswith('hgnn_') or k.startswith('ghost_') or k.startswith('geometric_'):
             config_args.pop(k)
 
     # Create the final config object
@@ -117,6 +145,8 @@ if __name__ == "__main__":
         cfg.hgnn = HGNNParams(**hgnn_args)
     if ghost_args:
         cfg.ghost = GhostParams(**ghost_args)
+    if geometric_args:
+        cfg.geometric = GeometricTrainingConfig(**geometric_args)
 
     # --- Setup ---
     if cfg.run_name:
