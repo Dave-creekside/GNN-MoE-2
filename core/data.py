@@ -12,8 +12,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import random
 
-# Assuming GNNMoEConfig will be imported from gnn_moe_config.py in the main script
-# from gnn_moe_config import GNNMoEConfig
+from .config import MoEConfig
 
 class SimpleTextDataset(Dataset):
     def __init__(self, texts, tokenizer, max_length=128):
@@ -35,7 +34,7 @@ class SimpleTextDataset(Dataset):
             'attention_mask': encoding['attention_mask'].squeeze(0) # Squeeze batch dim
         }
 
-def load_data(config): # config is a GNNMoEConfig instance
+def load_data(config: MoEConfig):
     print(f"🚀 Setting up data loading for {config.dataset_name} / {config.dataset_config_name}...")
     try:
         from transformers import AutoTokenizer

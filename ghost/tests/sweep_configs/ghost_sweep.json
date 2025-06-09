@@ -1,5 +1,5 @@
 {
-    "base_command": "python -m ghost.run_gnn_moe",
+    "base_command": "python3 -m ghost.run_gnn_moe",
     "sweep_params": {
         "num_ghost_experts": {
             "values": [2, 4, 8],
