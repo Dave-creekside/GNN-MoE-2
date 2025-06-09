@@ -1,0 +1,32 @@
+{
+    "base_command": "python -m ghost.run_gnn_moe",
+    "sweep_params": {
+        "learning_rate": {
+            "values": [5e-4, 1e-4, 5e-5],
+            "prefix": "lr"
+        },
+        "batch_size": {
+            "values": [16, 32, 64],
+            "prefix": "bs"
+        },
+        "dropout_rate": {
+            "values": [0.1, 0.2, 0.3],
+            "prefix": "dr"
+        }
+    },
+    "static_params": {
+        "epochs": 1,
+        "max_batches_per_epoch": 100,
+        "num_train_samples": 2000,
+        "num_eval_samples": 400,
+        "eval_every": 50,
+        "quiet": true,
+        "embed_dim": 256,
+        "num_layers": 4,
+        "num_experts": 4,
+        "gnn_layers": 2,
+        "num_ghost_experts": 4,
+        "ghost_activation_threshold": 0.75,
+        "ghost_learning_rate": 1e-4
+    }
+}

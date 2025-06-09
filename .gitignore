@@ -1,0 +1,71 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.project
+*.tmproj
+*.sublime-workspace
+
+# OS-generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Output directories
+checkpoints/
+checkpoints_sweep_runs/
+plots/
+
+# Data files & Logs
+*.csv
+*.log
+*.json # Excluding run_summary.json if it's part of a checkpoint structure you might want to keep
+# If run_summary.json should be ignored, uncomment the line below
+# run_summary.json
+
+# Hugging Face cache (general pattern, actual path might vary)
+.cache/
+huggingface/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# Specific project output files
+sweep_results_*.csv
