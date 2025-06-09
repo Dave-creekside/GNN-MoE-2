@@ -21,6 +21,7 @@ import numpy as np
 
 from .config import MoEConfig
 from .architecture import MoEModel, create_dynamic_optimizer, PrimaryGhostLRScheduler
+from .training_controllers import create_training_controller
 
 def save_checkpoint(state, is_best, checkpoint_dir="checkpoints", filename="checkpoint.pt"):
     if not os.path.exists(checkpoint_dir):
@@ -208,6 +209,133 @@ def standard_training_loop(model: MoEModel, optimizer, scheduler, train_loader, 
                     'best_eval_loss': best_eval_loss,
                     'config': config_dict
                 }, is_best, checkpoint_dir=config.checkpoint_dir)
+                
+                model.train()
+
+    log_path = os.path.join(config.checkpoint_dir, 'training_log.json')
+    with open(log_path, 'w') as f:
+        json.dump(training_log, f, indent=4)
+    print(f"Saved final training log to {log_path}")
+
+    return training_log, best_eval_loss
+
+
+def controller_training_loop(model: MoEModel, train_loader, eval_loader, device, config: MoEConfig,
+                           resume_from_epoch=0, resume_step=0, initial_best_loss=float('inf')):
+    """New training loop using the training controller pattern."""
+    
+    # Create training controller based on config
+    training_controller = create_training_controller(model, config)
+    
+    actual_batches_per_epoch = len(train_loader) if config.max_batches_per_epoch == -1 else min(len(train_loader), config.max_batches_per_epoch)
+    total_steps = config.max_steps
+    
+    if total_steps == 0:
+        print("Warning: total_steps is 0. No training will occur.")
+        return [], float('inf')
+
+    training_log = []
+    best_eval_loss = initial_best_loss
+    current_step = resume_step
+    
+    os.makedirs(config.checkpoint_dir, exist_ok=True)
+    
+    print(f"🚀 Using {config.training_mode} training controller")
+
+    for epoch in range(resume_from_epoch, config.epochs):
+        model.train()
+        pbar_train = tqdm(train_loader, desc=f"Epoch {epoch+1}/{config.epochs}", total=actual_batches_per_epoch)
+
+        for batch_idx, batch in enumerate(pbar_train):
+            if batch_idx >= actual_batches_per_epoch:
+                break
+
+            # Prepare batch data
+            batch_dict = {
+                'input_ids': batch['input_ids'],
+                'attention_mask': batch['attention_mask']
+            }
+            
+            # Controller-specific training step
+            loss = training_controller.training_step(batch_dict, current_step)
+            current_step += 1
+            
+            # Get current metrics from controller
+            controller_metrics = training_controller.get_current_metrics()
+            current_lr = controller_metrics.get('learning_rate', config.learning_rate)
+            
+            pbar_train.set_postfix({'loss': f'{loss.item():.3f}', 'lr': f"{current_lr:.1e}"})
+
+            if current_step % config.eval_every == 0:
+                print()
+                eval_loss, perplexity = evaluate_model(model, eval_loader, device, config)
+                
+                # Enhanced logging with controller metrics
+                print(f"Step {current_step}: Training Loss: {loss.item():.4f}")
+                print(f"  Controller: {config.training_mode}")
+                print(f"  Evaluation - Loss: {eval_loss:.4f}, Perplexity: {perplexity:.2f}")
+                
+                # Print controller-specific metrics
+                for key, value in controller_metrics.items():
+                    if key not in ['loss', 'learning_rate']:
+                        print(f"  {key.replace('_', ' ').title()}: {value}")
+
+                def ensure_json_serializable(value):
+                    if torch.is_tensor(value): return value.cpu().detach().numpy().tolist()
+                    if isinstance(value, np.ndarray): return value.tolist()
+                    return value
+
+                # Build log entry with controller metrics
+                log_entry = {
+                    'step': int(current_step),
+                    'train_loss': float(loss.item()),
+                    'eval_loss': float(eval_loss),
+                    'eval_perplexity': float(perplexity),
+                    'training_mode': config.training_mode,
+                    'controller_metrics': {k: ensure_json_serializable(v) for k, v in controller_metrics.items()}
+                }
+                
+                # Add model-specific metrics if available
+                if hasattr(model, 'get_expert_activation_loads'):
+                    log_entry['expert_loads'] = model.get_expert_activation_loads()
+                if hasattr(model, 'get_current_ghost_activations'):
+                    log_entry['ghost_activations'] = ensure_json_serializable(model.get_current_ghost_activations())
+
+                training_log.append(log_entry)
+                
+                log_path = os.path.join(config.checkpoint_dir, 'training_log.json')
+                with open(log_path, 'w') as f:
+                    json.dump(training_log, f, indent=4)
+                
+                is_best = eval_loss < best_eval_loss
+                if is_best:
+                    best_eval_loss = eval_loss
+                
+                config_dict = config.to_dict()
+                
+                # Save checkpoint with controller state
+                checkpoint_state = {
+                    'epoch': epoch,
+                    'step': current_step,
+                    'model_state_dict': model.state_dict(),
+                    'best_eval_loss': best_eval_loss,
+                    'config': config_dict,
+                    'training_mode': config.training_mode
+                }
+                
+                # Add controller optimizers and schedulers to checkpoint
+                controller_optimizers = training_controller.get_optimizers()
+                controller_schedulers = training_controller.get_schedulers()
+                
+                if controller_optimizers:
+                    checkpoint_state['controller_optimizer_states'] = [opt.state_dict() for opt in controller_optimizers]
+                if controller_schedulers:
+                    checkpoint_state['controller_scheduler_states'] = [
+                        sched.state_dict() if hasattr(sched, 'state_dict') else None 
+                        for sched in controller_schedulers
+                    ]
+                
+                save_checkpoint(checkpoint_state, is_best, checkpoint_dir=config.checkpoint_dir)
                 
                 model.train()
 

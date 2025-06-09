@@ -14,7 +14,7 @@ from transformers import AutoTokenizer
 from core.config import MoEConfig, HGNNParams, GhostParams
 from core.architecture import MoEModel, create_dynamic_optimizer, PrimaryGhostLRScheduler
 from core.inference import generate_text
-from core.training import standard_training_loop, load_checkpoint
+from core.training import standard_training_loop, controller_training_loop, load_checkpoint
 from core.analysis import run_analysis
 from core.data import load_data
 
@@ -242,24 +242,38 @@ def launch_training(train_loader=None, eval_loader=None):
 
 
         print("🚀 Starting training...")
-        if config.training_loop == "standard":
-            training_loop_func = standard_training_loop
+        
+        # Select training system based on configuration
+        if config.training_mode == "geometric" or config.training_loop == "controller":
+            # Use new controller-based training system
+            training_loop_func = controller_training_loop
+            controller_training_loop(
+                model=state["model"],
+                train_loader=train_loader,
+                eval_loader=eval_loader,
+                device=state["device"],
+                config=config,
+                resume_from_epoch=state["start_epoch"],
+                resume_step=state["resume_step"],
+                initial_best_loss=state["best_eval_loss"]
+            )
+        elif config.training_loop == "standard":
+            # Use legacy training system
+            standard_training_loop(
+                model=state["model"],
+                optimizer=state["optimizer"],
+                scheduler=state["scheduler"],
+                train_loader=train_loader,
+                eval_loader=eval_loader,
+                device=state["device"],
+                config=config,
+                resume_from_epoch=state["start_epoch"],
+                resume_step=state["resume_step"],
+                initial_best_loss=state["best_eval_loss"]
+            )
         else:
             print(f"Error: Unknown training loop '{config.training_loop}'")
             return
-
-        training_loop_func(
-            model=state["model"],
-            optimizer=state["optimizer"],
-            scheduler=state["scheduler"],
-            train_loader=train_loader,
-            eval_loader=eval_loader,
-            device=state["device"],
-            config=config,
-            resume_from_epoch=state["start_epoch"],
-            resume_step=state["resume_step"],
-            initial_best_loss=state["best_eval_loss"]
-        )
         
         print("\n✅ Training finished. Running final analysis...")
         log_path = os.path.join(config.checkpoint_dir, "training_log.json")
@@ -400,12 +414,25 @@ def advanced_config_menu(config: MoEConfig):
     print_header("Advanced Configuration")
     
     try:
+        # Training mode selection
+        training_mode_choice = input(f"Training mode [standard/geometric] [{config.training_mode}]: ")
+        if training_mode_choice in ['standard', 'geometric']:
+            config.training_mode = training_mode_choice
+        
+        # If geometric mode selected, show geometric options
+        if config.training_mode == "geometric":
+            config = edit_geometric_config(config)
+        
+        # Continue with other advanced options
         config_dict = config.to_dict()
-        # Flatten the config for editing
-        params_to_edit = {**config_dict, **config_dict.pop('hgnn'), **config_dict.pop('ghost')}
+        # Flatten the config for editing, excluding nested configs
+        params_to_edit = {**config_dict}
+        params_to_edit.pop('hgnn', None)
+        params_to_edit.pop('ghost', None) 
+        params_to_edit.pop('geometric', None)  # Already handled above
         
         for key, value in params_to_edit.items():
-            if key in ['num_parameters', 'hgnn', 'ghost', 'dataset_config_name']:
+            if key in ['num_parameters', 'dataset_config_name', 'training_mode']:
                 continue
             
             new_value_str = input(f"Enter value for '{key}' (current: {value}): ")
@@ -415,13 +442,70 @@ def advanced_config_menu(config: MoEConfig):
                     params_to_edit[key] = new_value_str.lower() in ['true', 't', '1', 'yes', 'y']
                 else:
                     params_to_edit[key] = original_type(new_value_str)
+        
+        # Update config with changes
+        for key, value in params_to_edit.items():
+            if hasattr(config, key):
+                setattr(config, key, value)
 
-        return MoEConfig.from_dict(params_to_edit)
+        return config
 
     except Exception as e:
         print(f"An error occurred: {e}")
         input("Press Enter to continue...")
         return config
+
+
+def edit_geometric_config(config: MoEConfig):
+    """Sub-menu for geometric training configuration."""
+    
+    print("\n--- Geometric Training Configuration ---")
+    
+    enabled = input(f"Enable geometric training [true/false] [{config.geometric.enabled}]: ")
+    if enabled.lower() in ['true', 'false']:
+        config.geometric.enabled = enabled.lower() == 'true'
+    
+    if config.geometric.enabled:
+        print("\nGeometric Training Parameters:")
+        
+        # Core geometric parameters
+        geom_lr = input(f"Geometric learning rate [{config.geometric.geometric_learning_rate}]: ")
+        if geom_lr:
+            config.geometric.geometric_learning_rate = float(geom_lr)
+        
+        expert_lr = input(f"Expert learning rate [{config.geometric.expert_learning_rate}]: ")
+        if expert_lr:
+            config.geometric.expert_learning_rate = float(expert_lr)
+        
+        rotation_dims = input(f"Rotation dimensions [{config.geometric.rotation_dimensions}]: ")
+        if rotation_dims:
+            config.geometric.rotation_dimensions = int(rotation_dims)
+        
+        # Loss weights
+        print("\nLoss Weights:")
+        ortho_weight = input(f"Orthogonality weight [{config.geometric.orthogonality_weight}]: ")
+        if ortho_weight:
+            config.geometric.orthogonality_weight = float(ortho_weight)
+        
+        rot_eff_weight = input(f"Rotation efficiency weight [{config.geometric.rotation_efficiency_weight}]: ")
+        if rot_eff_weight:
+            config.geometric.rotation_efficiency_weight = float(rot_eff_weight)
+        
+        spec_weight = input(f"Specialization weight [{config.geometric.specialization_weight}]: ")
+        if spec_weight:
+            config.geometric.specialization_weight = float(spec_weight)
+        
+        # Lambda calculus specific
+        print("\nLambda Calculus Options:")
+        lambda_cog = input(f"Lambda cognitive rotations [true/false] [{config.geometric.lambda_cognitive_rotations}]: ")
+        if lambda_cog.lower() in ['true', 'false']:
+            config.geometric.lambda_cognitive_rotations = lambda_cog.lower() == 'true'
+        
+        lambda_sched = input(f"Lambda rotation scheduling [curriculum/adaptive/fixed] [{config.geometric.lambda_rotation_scheduling}]: ")
+        if lambda_sched in ['curriculum', 'adaptive', 'fixed']:
+            config.geometric.lambda_rotation_scheduling = lambda_sched
+    
+    return config
 
 def train_new_model_menu():
     """A wizard for configuring and launching a new training run."""

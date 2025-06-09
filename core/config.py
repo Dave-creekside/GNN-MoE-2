@@ -28,6 +28,33 @@ class GhostParams:
     ghost_background_learning: bool = False
 
 @dataclass
+class GeometricTrainingConfig:
+    """Parameters specific to Geometric Constrained Learning."""
+    # Core geometric parameters
+    enabled: bool = False
+    geometric_learning_rate: float = 1e-3
+    expert_learning_rate: float = 1e-4  # Lower than geometric LR
+    rotation_dimensions: int = 4
+    
+    # Loss weights
+    orthogonality_weight: float = 0.5
+    rotation_efficiency_weight: float = 0.2
+    specialization_weight: float = 0.3
+    
+    # Ghost geometric integration
+    ghost_geometric_threshold: float = 0.7
+    ghost_rotation_dimensions: int = 4
+    
+    # Lambda calculus specific
+    lambda_cognitive_rotations: bool = True
+    lambda_rotation_scheduling: str = "curriculum"  # "curriculum", "adaptive", "fixed"
+    
+    # Advanced geometric parameters
+    rotation_matrix_type: str = "givens"  # "givens", "householder", "learned"
+    rotation_convergence_threshold: float = 1e-4
+    max_rotation_magnitude: float = 2.0  # Maximum rotation angle in radians
+
+@dataclass
 class MoEConfig:
     """Unified configuration for all MoE models."""
     # --- Run Management ---
@@ -61,8 +88,10 @@ class MoEConfig:
     # --- Nested Configurations for Specific Features ---
     hgnn: HGNNParams = field(default_factory=HGNNParams)
     ghost: GhostParams = field(default_factory=GhostParams)
+    geometric: GeometricTrainingConfig = field(default_factory=GeometricTrainingConfig)
 
     # --- Training Parameters ---
+    training_mode: str = "standard"  # "standard" or "geometric"
     training_loop: str = "standard"
     epochs: int = 5
     batch_size: int = 8
@@ -117,6 +146,7 @@ class MoEConfig:
         """Creates a config object from a dictionary, handling nested dataclasses."""
         hgnn_params_dict = d.pop('hgnn', {})
         ghost_params_dict = d.pop('ghost', {})
+        geometric_params_dict = d.pop('geometric', {})
 
         # Create the main config, ignoring nested dataclass fields for now
         main_config_fields = {f.name for f in fields(cls)}
@@ -127,6 +157,7 @@ class MoEConfig:
         # Create and assign the nested dataclasses
         config.hgnn = HGNNParams(**hgnn_params_dict)
         config.ghost = GhostParams(**ghost_params_dict)
+        config.geometric = GeometricTrainingConfig(**geometric_params_dict)
         
         return config
 
