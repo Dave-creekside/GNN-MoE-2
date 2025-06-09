@@ -52,6 +52,7 @@ class MoEConfig:
     num_heads: int = 4
     num_experts: int = 8
     dropout_rate: float = 0.1
+    num_parameters: Optional[int] = None # To be calculated at runtime
 
     # --- Feature Flags for Backwards Compatibility ---
     use_hypergraph_coupling: bool = True

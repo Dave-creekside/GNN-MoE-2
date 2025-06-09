@@ -127,6 +127,11 @@ if __name__ == "__main__":
     # --- Model Initialization ---
     model = MoEModel(cfg).to(selected_device)
     
+    # Log model size and save to config
+    num_params = model.get_total_params()
+    cfg.num_parameters = num_params
+    verbose_print(f"✅ Model initialized with {num_params/1e6:.2f}M parameters.")
+
     actual_batches_per_epoch = len(train_loader) if cfg.max_batches_per_epoch == -1 else min(len(train_loader), cfg.max_batches_per_epoch)
     if cfg.max_steps is None:
         cfg.max_steps = cfg.epochs * actual_batches_per_epoch

@@ -237,7 +237,7 @@ def plot_expert_activation_evolution(df, output_path):
 
 def run_analysis(log_path):
     """
-    Main function to load a log and generate all plots.
+    Main function to load a log and generate all plots based on the run's configuration.
     """
     if not os.path.exists(log_path):
         print(f"❌ ERROR: Log file not found at {log_path}")
@@ -247,21 +247,38 @@ def run_analysis(log_path):
     print(f"📊 Analyzing log file: {log_path}")
     print(f"   Saving plots to: {output_dir}")
 
+    # Load the training log
     df = load_log_data(log_path)
     if df.empty:
         print("   ⚠️ Log file is empty. Skipping analysis.")
         return
 
-    # Original plots
+    # Load the config to determine which plots are relevant
+    config_path = os.path.join(output_dir, "config.json")
+    mode = 'ghost' # Default to most inclusive mode if config is missing
+    if os.path.exists(config_path):
+        with open(config_path, 'r') as f:
+            config_data = json.load(f)
+            mode = config_data.get('architecture_mode', 'ghost')
+    else:
+        print(f"   ⚠️ config.json not found. Generating all possible plots.")
+
+    print(f"   Detected architecture mode: '{mode}'. Generating relevant plots.")
+
+    # Always generate these plots
     plot_losses(df, os.path.join(output_dir, "plot_losses.png"))
     plot_perplexity(df, os.path.join(output_dir, "plot_perplexity.png"))
     plot_learning_rates(df, os.path.join(output_dir, "plot_learning_rates.png"))
-    plot_ghost_metrics(df, os.path.join(output_dir, "plot_ghost_metrics.png"))
+
+    # Plot HGNN-specific plots
+    if mode in ['hgnn', 'orthogonal', 'ghost']:
+        plot_expert_connection_heatmap(df, os.path.join(output_dir, "plot_expert_connections_heatmap.png"))
+
+    # Plot Ghost-specific plots
+    if mode == 'ghost':
+        plot_ghost_metrics(df, os.path.join(output_dir, "plot_ghost_metrics.png"))
+        plot_expert_load_distribution(df, os.path.join(output_dir, "plot_expert_load_distribution.png"))
+        plot_saturation_activation_phase(df, os.path.join(output_dir, "plot_saturation_activation_phase.png"))
+        plot_expert_activation_evolution(df, os.path.join(output_dir, "plot_expert_activation_evolution.png"))
     
-    # Enhanced plots
-    plot_expert_connection_heatmap(df, os.path.join(output_dir, "plot_expert_connections_heatmap.png"))
-    plot_expert_load_distribution(df, os.path.join(output_dir, "plot_expert_load_distribution.png"))
-    plot_saturation_activation_phase(df, os.path.join(output_dir, "plot_saturation_activation_phase.png"))
-    plot_expert_activation_evolution(df, os.path.join(output_dir, "plot_expert_activation_evolution.png"))
-    
-    print("   ✅ Analysis and plotting complete with enhanced visualizations.")
+    print("   ✅ Analysis and plotting complete.")

@@ -404,3 +404,7 @@ class MoEModel(nn.Module):
             loads['ghost'] = ghost_activations
             
         return loads
+
+    def get_total_params(self):
+        """Calculates the total number of parameters in the model."""
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
