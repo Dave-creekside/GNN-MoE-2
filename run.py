@@ -92,6 +92,10 @@ def get_args():
 if __name__ == "__main__":
     args = get_args()
 
+    # Sanitize dataset name - strip quotes and whitespace for robust handling
+    if args.dataset_name:
+        args.dataset_name = args.dataset_name.strip().strip("'\"")
+
     if args.quiet:
         _VERBOSE = False
 

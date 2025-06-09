@@ -372,13 +372,23 @@ def edit_dataset_menu(config: MoEConfig):
 
     if source_choice == '1':
         config.dataset_source = "huggingface"
-        path = input(f"Enter HF dataset path (e.g., wikitext/wikitext-2-v1) [{config.dataset_name}]: ") or config.dataset_name
-        parts = path.split('/')
-        config.dataset_name = parts[0]
-        config.dataset_config_name = parts[1] if len(parts) > 1 else ""
+        path = input(f"Enter HF dataset name (e.g., openai/gsm8k, Creekside/GRPO-Lambda-ParsedForUnsloth) [{config.dataset_name}]: ") or config.dataset_name
+        # Strip quotes and whitespace from input
+        path = path.strip().strip('"').strip("'").strip()
+        
+        # Treat the entire input as the dataset name by default
+        config.dataset_name = path
+        config.dataset_config_name = ""
+        
+        # Optional: Ask for config if user wants to specify one
+        config_input = input("Enter config name (leave blank for default): ").strip()
+        if config_input:
+            config.dataset_config_name = config_input
     elif source_choice == '2':
         config.dataset_source = "local_file"
         path = input(f"Enter path to local file [{config.dataset_name}]: ") or config.dataset_name
+        # Strip quotes and whitespace from input
+        path = path.strip().strip('"').strip("'").strip()
         config.dataset_name = path
         config.dataset_config_name = ""
     else:
