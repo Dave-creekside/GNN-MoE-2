@@ -243,6 +243,7 @@ class GeometricLossComputer:
     def compute_geometric_loss(
         self, 
         expert_outputs: List[torch.Tensor],
+        expert_hidden_states: List[torch.Tensor],
         rotated_data: List[torch.Tensor], 
         targets: torch.Tensor,
         rotation_angles: torch.Tensor,
@@ -251,22 +252,64 @@ class GeometricLossComputer:
         """
         Compute the complete geometric loss with all components.
         
+        Args:
+            expert_outputs: List of expert logits (for task loss)
+            expert_hidden_states: List of expert hidden states (for orthogonality loss)
+            
         Returns:
             total_loss: Combined geometric loss
             loss_components: Dictionary of individual loss components
         """
         
-        # 1. Task performance loss (standard language modeling)
-        task_loss = self._compute_task_loss(expert_outputs, targets)
+        loss_components = {}
         
-        # 2. Orthogonality preservation loss
-        orthogonality_loss = self._compute_orthogonality_preservation_loss(expert_outputs)
+        # 1. Task performance loss (standard language modeling) - use logits
+        try:
+            task_loss = self._compute_task_loss(expert_outputs, targets)
+            if task_loss is not None and torch.isfinite(task_loss):
+                loss_components['task_loss'] = safe_item(task_loss)
+            else:
+                task_loss = torch.tensor(0.0, device=targets.device)
+                loss_components['task_loss'] = 0.0
+        except Exception:
+            task_loss = torch.tensor(0.0, device=targets.device)
+            loss_components['task_loss'] = 0.0
+        
+        # 2. Orthogonality preservation loss - use hidden states (memory efficient)
+        try:
+            orthogonality_loss = self._compute_orthogonality_preservation_loss(expert_hidden_states)
+            if orthogonality_loss is not None and torch.isfinite(orthogonality_loss):
+                loss_components['orthogonality_loss'] = safe_item(orthogonality_loss)
+            else:
+                orthogonality_loss = torch.tensor(0.0, device=targets.device)
+                loss_components['orthogonality_loss'] = 0.0
+        except Exception:
+            orthogonality_loss = torch.tensor(0.0, device=targets.device)
+            loss_components['orthogonality_loss'] = 0.0
         
         # 3. Rotation efficiency loss
-        rotation_efficiency_loss = self._compute_rotation_efficiency_loss(rotation_angles)
+        try:
+            rotation_efficiency_loss = self._compute_rotation_efficiency_loss(rotation_angles)
+            if rotation_efficiency_loss is not None and torch.isfinite(rotation_efficiency_loss):
+                loss_components['rotation_efficiency_loss'] = safe_item(rotation_efficiency_loss)
+            else:
+                rotation_efficiency_loss = torch.tensor(0.0, device=targets.device)
+                loss_components['rotation_efficiency_loss'] = 0.0
+        except Exception:
+            rotation_efficiency_loss = torch.tensor(0.0, device=targets.device)
+            loss_components['rotation_efficiency_loss'] = 0.0
         
-        # 4. Expert specialization loss
-        specialization_loss = self._compute_expert_specialization_loss(expert_outputs)
+        # 4. Expert specialization loss - use hidden states
+        try:
+            specialization_loss = self._compute_expert_specialization_loss(expert_hidden_states)
+            if specialization_loss is not None and torch.isfinite(specialization_loss):
+                loss_components['specialization_loss'] = safe_item(specialization_loss)
+            else:
+                specialization_loss = torch.tensor(0.0, device=targets.device)
+                loss_components['specialization_loss'] = 0.0
+        except Exception:
+            specialization_loss = torch.tensor(0.0, device=targets.device)
+            loss_components['specialization_loss'] = 0.0
         
         # Combine losses with configured weights
         total_loss = (
@@ -276,13 +319,7 @@ class GeometricLossComputer:
             self.geometric.specialization_weight * specialization_loss
         )
         
-        loss_components = {
-            'task_loss': task_loss.item(),
-            'orthogonality_loss': orthogonality_loss.item(),
-            'rotation_efficiency_loss': rotation_efficiency_loss.item(),
-            'specialization_loss': specialization_loss.item(),
-            'total_loss': total_loss.item()
-        }
+        loss_components['total_loss'] = safe_item(total_loss)
         
         return total_loss, loss_components
     

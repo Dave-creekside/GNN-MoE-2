@@ -270,18 +270,21 @@ class GeometricTrainingController(TrainingController):
         rotated_presentations = self.data_rotator.rotate_data_for_experts(input_embeddings)
         
         # Process each expert with its optimal data presentation
-        expert_outputs = []
+        expert_logits = []
+        expert_hidden_states = []
         for expert_idx, rotated_data in enumerate(rotated_presentations):
             # Forward through the specific expert with rotated data
-            expert_output = self._forward_expert(expert_idx, rotated_data, attention_mask[:, :-1])
-            expert_outputs.append(expert_output)
+            logits, hidden_state = self._forward_expert(expert_idx, rotated_data, attention_mask[:, :-1])
+            expert_logits.append(logits)
+            expert_hidden_states.append(hidden_state)
         
         # Get rotation angles for loss computation
         rotation_angles = self.data_rotator.get_rotation_angles()
         
-        # Compute geometric loss
+        # Compute geometric loss - use logits for task loss, hidden states for orthogonality
         geometric_loss, loss_components = self.loss_computer.compute_geometric_loss(
-            expert_outputs=expert_outputs,
+            expert_outputs=expert_logits,  # Use logits for task loss
+            expert_hidden_states=expert_hidden_states,  # Use hidden states for orthogonality
             rotated_data=rotated_presentations,
             targets=targets,
             rotation_angles=rotation_angles,
@@ -305,13 +308,15 @@ class GeometricTrainingController(TrainingController):
         from .geometric_training import safe_item
         
         # Update metrics - include both geometric AND architectural metrics
+        geometric_components_dict = {k: safe_item(v) for k, v in loss_components.items()}
+        
         current_metrics = {
             'learning_rate': safe_item(self.rotation_optimizer.param_groups[0]['lr']),
             'expert_learning_rate': safe_item(self.expert_optimizer.param_groups[0]['lr']),
             'rotation_angles': rotation_angles.detach().cpu().numpy().tolist(),
             'rotation_efficiency': safe_item(loss_components.get('rotation_efficiency_loss', 0.0)),
             'expert_specialization': safe_item(loss_components.get('specialization_loss', 0.0)),
-            'geometric_components': loss_components,
+            'geometric_components': geometric_components_dict,
             'training_mode': 'geometric'
         }
         
@@ -323,7 +328,7 @@ class GeometricTrainingController(TrainingController):
         
         return geometric_loss
     
-    def _forward_expert(self, expert_idx: int, rotated_data: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+    def _forward_expert(self, expert_idx: int, rotated_data: torch.Tensor, attention_mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Forward pass through a specific expert with its optimally rotated data."""
         # Apply position embeddings to the rotated data
         batch_size, seq_len, embed_dim = rotated_data.shape
@@ -342,11 +347,13 @@ class GeometricTrainingController(TrainingController):
         for layer in self.model.model_layers:
             x = layer(x, step=self.step_count, causal_mask=causal_mask, key_padding_mask=key_padding_mask)
         
-        # Apply output normalization and head
-        x = self.model.output_norm(x)
-        logits = self.model.lm_head(x)
+        # Apply output normalization to get final hidden state
+        hidden_state = self.model.output_norm(x)
         
-        return logits
+        # Apply language model head to get logits
+        logits = self.model.lm_head(hidden_state)
+        
+        return logits, hidden_state
     
     def get_optimizers(self) -> List[torch.optim.Optimizer]:
         """Return both rotation and expert optimizers."""
@@ -361,60 +368,102 @@ class GeometricTrainingController(TrainingController):
         architecture_metrics = {}
         
         # Extract expert connection data for HGNN architectures
-        if hasattr(self.model, 'moe_layers'):
-            for layer_idx, layer in enumerate(self.model.moe_layers):
-                if hasattr(layer, 'hgnn_coupler') and layer.hgnn_coupler is not None:
-                    # Extract HGNN adjacency matrix or edge weights
-                    if hasattr(layer.hgnn_coupler, 'get_edge_weights'):
-                        edge_weights = layer.hgnn_coupler.get_edge_weights()
-                        if edge_weights is not None:
-                            architecture_metrics['expert_connections'] = {
-                                'edge_weights': edge_weights.detach().cpu().numpy().tolist(),
-                                'layer': layer_idx
-                            }
-                    elif hasattr(layer.hgnn_coupler, 'adjacency_matrix'):
-                        adj_matrix = layer.hgnn_coupler.adjacency_matrix
-                        if adj_matrix is not None:
-                            architecture_metrics['expert_connections'] = {
-                                'adjacency_matrix': adj_matrix.detach().cpu().numpy().tolist(),
-                                'layer': layer_idx
-                            }
+        if hasattr(self.model, 'model_layers') and self.config.use_hypergraph_coupling:
+            for layer_idx, layer in enumerate(self.model.model_layers):
+                if hasattr(layer, 'coupler') and layer.coupler is not None:
+                    # Try multiple methods to extract connection data
+                    connection_data = None
+                    
+                    # Method 1: get_adjacency_matrix
+                    if hasattr(layer.coupler, 'get_adjacency_matrix'):
+                        try:
+                            adj_matrix = layer.coupler.get_adjacency_matrix()
+                            if adj_matrix is not None:
+                                connection_data = {
+                                    'adjacency_matrix': adj_matrix.tolist() if hasattr(adj_matrix, 'tolist') else adj_matrix,
+                                    'layer': layer_idx,
+                                    'type': 'adjacency_matrix'
+                                }
+                        except Exception:
+                            pass
+                    
+                    # Method 2: hyperedge_weights (the actual available attribute)
+                    if connection_data is None and hasattr(layer.coupler, 'hyperedge_weights'):
+                        try:
+                            edge_weights = layer.coupler.hyperedge_weights
+                            if edge_weights is not None:
+                                connection_data = {
+                                    'edge_weights': edge_weights.detach().cpu().numpy().tolist(),
+                                    'layer': layer_idx,
+                                    'type': 'hyperedge_weights'
+                                }
+                        except Exception:
+                            pass
+                    
+                    # Method 3: _hyperedge_index (static topology)
+                    if connection_data is None and hasattr(layer.coupler, '_hyperedge_index'):
+                        try:
+                            edge_index = layer.coupler._hyperedge_index
+                            if edge_index is not None and edge_index.numel() > 0:
+                                connection_data = {
+                                    'hyperedge_index': edge_index.detach().cpu().numpy().tolist(),
+                                    'num_hyperedges': layer.coupler._num_hyperedges,
+                                    'layer': layer_idx,
+                                    'type': 'hyperedge_topology'
+                                }
+                        except Exception:
+                            pass
+                    
+                    # If we got any connection data, store it
+                    if connection_data is not None:
+                        architecture_metrics['expert_connections'] = connection_data
+                        break  # Use first layer with connection data
         
         # Extract ghost expert metrics
-        if hasattr(self.model, 'ghost_experts') or self.config.ghost.num_ghost_experts > 0:
-            # Extract ghost activation levels
-            ghost_activations = []
-            ghost_loads = {}
+        if hasattr(self.model, 'model_layers') and self.config.ghost.num_ghost_experts > 0:
+            # Extract ghost activation levels using model methods
+            try:
+                ghost_activations = self.model.get_current_ghost_activations()
+                if ghost_activations is not None and ghost_activations.numel() > 0:
+                    architecture_metrics['ghost_activations'] = ghost_activations.detach().cpu().numpy().tolist()
+                else:
+                    architecture_metrics['ghost_activations'] = [0.0] * self.config.ghost.num_ghost_experts
+            except Exception:
+                architecture_metrics['ghost_activations'] = [0.0] * self.config.ghost.num_ghost_experts
             
-            # Check for ghost expert activations
-            if hasattr(self.model, 'moe_layers'):
-                for layer in self.model.moe_layers:
-                    if hasattr(layer, 'ghost_experts') and layer.ghost_experts is not None:
-                        if hasattr(layer.ghost_experts, 'activation_levels'):
-                            ghost_activations.extend(layer.ghost_experts.activation_levels.detach().cpu().numpy().tolist())
-                        elif hasattr(layer.ghost_experts, 'get_activation_levels'):
-                            activations = layer.ghost_experts.get_activation_levels()
-                            if activations is not None:
-                                ghost_activations.extend(activations.detach().cpu().numpy().tolist())
-            
-            if ghost_activations:
-                architecture_metrics['ghost_activations'] = ghost_activations
-            
-            # Extract saturation level if available
-            if hasattr(self.model, 'get_saturation_level'):
-                saturation = self.model.get_saturation_level()
-                if saturation is not None:
-                    architecture_metrics['saturation_level'] = saturation
+            # Extract saturation level using model method
+            try:
+                saturation_metrics = self.model.get_last_saturation_metrics()
+                if saturation_metrics and 'saturation_level' in saturation_metrics:
+                    architecture_metrics['saturation_level'] = saturation_metrics['saturation_level']
+                else:
+                    architecture_metrics['saturation_level'] = 0.0
+            except Exception:
+                architecture_metrics['saturation_level'] = 0.0
             
             # Extract expert loads (both primary and ghost)
-            expert_loads = self._extract_expert_loads()
-            if expert_loads:
-                architecture_metrics['expert_loads'] = expert_loads
+            try:
+                expert_loads = self.model.get_expert_activation_loads()
+                if expert_loads and (expert_loads.get('primary') or expert_loads.get('ghost')):
+                    architecture_metrics['expert_loads'] = expert_loads
+                else:
+                    architecture_metrics['expert_loads'] = {
+                        'primary': [1.0] * self.config.num_experts,
+                        'ghost': [0.0] * self.config.ghost.num_ghost_experts
+                    }
+            except Exception:
+                architecture_metrics['expert_loads'] = {
+                    'primary': [1.0] * self.config.num_experts,
+                    'ghost': [0.0] * self.config.ghost.num_ghost_experts
+                }
         
         # Extract orthogonality score
-        orthogonality_score = self._compute_expert_orthogonality()
-        if orthogonality_score > 0:
-            architecture_metrics['orthogonality_score'] = orthogonality_score
+        try:
+            orthogonality_score = self._compute_expert_orthogonality()
+            if orthogonality_score > 0:
+                architecture_metrics['orthogonality_score'] = orthogonality_score
+        except Exception:
+            pass
         
         return architecture_metrics
     
@@ -422,19 +471,18 @@ class GeometricTrainingController(TrainingController):
         """Extract expert load distribution."""
         loads = {}
         
-        if hasattr(self.model, 'moe_layers'):
+        if hasattr(self.model, 'model_layers'):
             primary_loads = []
             ghost_loads = []
             
-            for layer in self.model.moe_layers:
+            for layer in self.model.model_layers:
                 # Primary expert loads
-                if hasattr(layer, 'experts'):
-                    primary_loads.extend([1.0] * len(layer.experts))  # Simplified - all experts active
+                if hasattr(layer, 'primary_experts'):
+                    primary_loads.extend([1.0] * len(layer.primary_experts))  # Simplified - all experts active
                 
                 # Ghost expert loads  
                 if hasattr(layer, 'ghost_experts') and layer.ghost_experts is not None:
-                    if hasattr(layer.ghost_experts, 'experts'):
-                        ghost_loads.extend([1.0] * len(layer.ghost_experts.experts))  # Simplified
+                    ghost_loads.extend([1.0] * len(layer.ghost_experts))  # Simplified
             
             if primary_loads:
                 loads['primary'] = primary_loads
@@ -485,16 +533,26 @@ class GeometricTrainingController(TrainingController):
                 'training_mode': 'geometric'
             }
         
-        return {
+        # Start with core metrics
+        current_metrics = {
             'loss': self.metrics_history['loss'][-1],
             'learning_rate': self.metrics_history['learning_rate'][-1] if self.metrics_history['learning_rate'] else self.config.geometric.geometric_learning_rate,
             'expert_learning_rate': self.metrics_history.get('expert_learning_rate', [self.config.geometric.expert_learning_rate])[-1],
             'rotation_angles': self.metrics_history['rotation_angles'][-1] if self.metrics_history['rotation_angles'] else [],
             'rotation_efficiency': self.metrics_history['rotation_efficiency_loss'][-1] if self.metrics_history['rotation_efficiency_loss'] else 0.0,
             'expert_specialization': self.metrics_history['expert_specialization'][-1] if self.metrics_history['expert_specialization'] else 0.0,
-            'geometric_components': self.metrics_history['geometric_loss_components'][-1] if self.metrics_history['geometric_loss_components'] else {},
+            'geometric_components': self.metrics_history['geometric_components'][-1] if self.metrics_history['geometric_components'] else {},
             'training_mode': 'geometric'
         }
+        
+        # DYNAMIC INCLUSION: Add any additional metrics that were stored but not in the core list
+        core_keys = set(current_metrics.keys())
+        for metric_key, metric_history in self.metrics_history.items():
+            if metric_key not in core_keys and metric_history:
+                # Include the latest value of any additional metric
+                current_metrics[metric_key] = metric_history[-1]
+        
+        return current_metrics
 
 
 def create_training_controller(model, config: MoEConfig) -> TrainingController:

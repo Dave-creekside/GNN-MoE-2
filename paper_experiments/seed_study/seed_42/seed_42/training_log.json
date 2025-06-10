@@ -23,15 +23,9 @@
                     0.10575232654809952
                 ]
             ],
-            "rotation_efficiency": 0.019055992364883423,
+            "rotation_efficiency": 0.0,
             "expert_specialization": 0.3012264668941498,
-            "geometric_components": {
-                "task_loss": 10.27834701538086,
-                "orthogonality_loss": 0.06928902864456177,
-                "rotation_efficiency_loss": 0.019055992364883423,
-                "specialization_loss": 0.3012264668941498,
-                "total_loss": 10.407170295715332
-            },
+            "geometric_components": {},
             "training_mode": "geometric"
         },
         "expert_loads": {
@@ -73,15 +67,9 @@
                     0.07036957889795303
                 ]
             ],
-            "rotation_efficiency": 0.014230936765670776,
+            "rotation_efficiency": 0.0,
             "expert_specialization": 0.0,
-            "geometric_components": {
-                "task_loss": 9.889181137084961,
-                "orthogonality_loss": 0.06964603811502457,
-                "rotation_efficiency_loss": 0.014230936765670776,
-                "specialization_loss": 0.0,
-                "total_loss": 9.926850318908691
-            },
+            "geometric_components": {},
             "training_mode": "geometric"
         },
         "expert_loads": {
@@ -123,15 +111,9 @@
                     0.04932248592376709
                 ]
             ],
-            "rotation_efficiency": 0.011616043746471405,
+            "rotation_efficiency": 0.0,
             "expert_specialization": 0.013391214422881603,
-            "geometric_components": {
-                "task_loss": 9.89831256866455,
-                "orthogonality_loss": 0.08447001874446869,
-                "rotation_efficiency_loss": 0.011616043746471405,
-                "specialization_loss": 0.013391214422881603,
-                "total_loss": 9.94688892364502
-            },
+            "geometric_components": {},
             "training_mode": "geometric"
         },
         "expert_loads": {
@@ -173,15 +155,9 @@
                     0.03886067122220993
                 ]
             ],
-            "rotation_efficiency": 0.010270660743117332,
+            "rotation_efficiency": 0.0,
             "expert_specialization": 0.0,
-            "geometric_components": {
-                "task_loss": 9.298279762268066,
-                "orthogonality_loss": 0.4003203511238098,
-                "rotation_efficiency_loss": 0.010270660743117332,
-                "specialization_loss": 0.0,
-                "total_loss": 9.500494003295898
-            },
+            "geometric_components": {},
             "training_mode": "geometric"
         },
         "expert_loads": {
@@ -223,15 +199,9 @@
                     0.03492308408021927
                 ]
             ],
-            "rotation_efficiency": 0.009747721254825592,
+            "rotation_efficiency": 0.0,
             "expert_specialization": 0.0,
-            "geometric_components": {
-                "task_loss": 9.591974258422852,
-                "orthogonality_loss": 0.19792784750461578,
-                "rotation_efficiency_loss": 0.009747721254825592,
-                "specialization_loss": 0.0,
-                "total_loss": 9.692887306213379
-            },
+            "geometric_components": {},
             "training_mode": "geometric"
         },
         "expert_loads": {
@@ -273,15 +243,9 @@
                     0.034287795424461365
                 ]
             ],
-            "rotation_efficiency": 0.00966306310147047,
+            "rotation_efficiency": 0.0,
             "expert_specialization": 0.0,
-            "geometric_components": {
-                "task_loss": 9.613213539123535,
-                "orthogonality_loss": 0.19589479267597198,
-                "rotation_efficiency_loss": 0.00966306310147047,
-                "specialization_loss": 0.0,
-                "total_loss": 9.713092803955078
-            },
+            "geometric_components": {},
             "training_mode": "geometric"
         },
         "expert_loads": {

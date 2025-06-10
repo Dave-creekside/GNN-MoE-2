@@ -245,19 +245,46 @@ def plot_expert_activation_evolution(df, output_path):
     ax1.legend()
     ax1.grid(True, alpha=0.3)
     
-    # Plot orthogonality and saturation evolution
-    ax2.plot(df['step'], df['orthogonality_score'], 
-             label='Orthogonality Score', color='blue', marker='s', linewidth=2)
-    ax2_twin = ax2.twinx()
-    ax2_twin.plot(df['step'], df['saturation_level'], 
-                  label='Saturation Level', color='red', marker='^', linewidth=2)
+    # Plot orthogonality and saturation evolution (with robust column checking)
+    has_orthogonality = 'orthogonality_score' in df.columns and not df['orthogonality_score'].isna().all()
+    has_saturation = 'saturation_level' in df.columns and not df['saturation_level'].isna().all()
+    
+    if has_orthogonality and has_saturation:
+        # Both metrics available - dual y-axis plot
+        ax2.plot(df['step'], df['orthogonality_score'], 
+                 label='Orthogonality Score', color='blue', marker='s', linewidth=2)
+        ax2_twin = ax2.twinx()
+        ax2_twin.plot(df['step'], df['saturation_level'], 
+                      label='Saturation Level', color='red', marker='^', linewidth=2)
+        
+        ax2.set_ylabel('Orthogonality Score', color='blue')
+        ax2_twin.set_ylabel('Saturation Level', color='red')
+        ax2.legend(loc='upper left')
+        ax2_twin.legend(loc='upper right')
+        
+    elif has_orthogonality:
+        # Only orthogonality available
+        ax2.plot(df['step'], df['orthogonality_score'], 
+                 label='Orthogonality Score', color='blue', marker='s', linewidth=2)
+        ax2.set_ylabel('Orthogonality Score')
+        ax2.legend()
+        
+    elif has_saturation:
+        # Only saturation available
+        ax2.plot(df['step'], df['saturation_level'], 
+                 label='Saturation Level', color='red', marker='^', linewidth=2)
+        ax2.set_ylabel('Saturation Level')
+        ax2.legend()
+        
+    else:
+        # Neither metric available - show placeholder
+        ax2.text(0.5, 0.5, 'No orthogonality or saturation data available', 
+                ha='center', va='center', transform=ax2.transAxes, 
+                fontsize=12, style='italic', color='gray')
+        ax2.set_ylabel('No Data')
     
     ax2.set_title('Expert Specialization Dynamics')
     ax2.set_xlabel('Training Step')
-    ax2.set_ylabel('Orthogonality Score', color='blue')
-    ax2_twin.set_ylabel('Saturation Level', color='red')
-    ax2.legend(loc='upper left')
-    ax2_twin.legend(loc='upper right')
     ax2.grid(True, alpha=0.3)
     
     plt.tight_layout()
