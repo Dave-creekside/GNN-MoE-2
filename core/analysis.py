@@ -560,6 +560,229 @@ def plot_expert_activation_correlation_heatmap(df, output_path):
     except Exception as e:
         print(f"   ⚠️ Error computing activation correlation: {e}")
 
+def plot_geometric_loss_distribution_violin(df, output_path):
+    """🎻 Violin plot showing distribution of geometric loss components across training."""
+    if 'geometric_components' not in df.columns:
+        print("   ⚠️ No geometric loss components data found. Skipping violin plot.")
+        return
+    
+    # Parse geometric components into long format for seaborn
+    components_data = []
+    for step_idx, comp_entry in enumerate(df['geometric_components']):
+        if comp_entry and isinstance(comp_entry, dict):
+            step = df['step'].iloc[step_idx] if step_idx < len(df['step']) else step_idx
+            for component_name, value in comp_entry.items():
+                if component_name != 'total_loss':  # Skip total to focus on components
+                    components_data.append({
+                        'step': step,
+                        'component': component_name.replace('_', ' ').title(),
+                        'value': value
+                    })
+    
+    if not components_data:
+        print("   ⚠️ No valid geometric components data for violin plot.")
+        return
+    
+    components_df = pd.DataFrame(components_data)
+    
+    plt.figure(figsize=(14, 8))
+    
+    # Create violin plot with enhanced seaborn styling
+    sns.violinplot(
+        data=components_df, 
+        x='component', 
+        y='value',
+        hue='component',  # Fix for seaborn deprecation warning
+        palette='Set2',
+        inner='box',  # Show box plot inside violin
+        linewidth=1.5,
+        legend=False  # Don't show legend since x and hue are the same
+    )
+    
+    # Add individual points as a swarm plot overlay
+    sns.swarmplot(
+        data=components_df,
+        x='component',
+        y='value',
+        color='black',
+        alpha=0.6,
+        size=3
+    )
+    
+    plt.title('Geometric Loss Components Distribution\n(Violin Plot with Individual Points)', fontsize=14, fontweight='bold')
+    plt.xlabel('Loss Component', fontsize=12)
+    plt.ylabel('Loss Value', fontsize=12)
+    plt.xticks(rotation=45)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+def plot_rotation_evolution_ridgeline(df, output_path):
+    """🏔️ Ridgeline plot showing rotation angle evolution over time per expert."""
+    if 'rotation_angles' not in df.columns:
+        print("   ⚠️ No rotation angles data found. Skipping ridgeline plot.")
+        return
+    
+    # Parse rotation data into long format
+    rotation_data = []
+    for step_idx, angles_entry in enumerate(df['rotation_angles']):
+        if angles_entry and isinstance(angles_entry, list):
+            step = df['step'].iloc[step_idx] if step_idx < len(df['step']) else step_idx
+            for expert_idx, expert_angles in enumerate(angles_entry):
+                if isinstance(expert_angles, list):
+                    for dim_idx, angle in enumerate(expert_angles):
+                        rotation_data.append({
+                            'step': step,
+                            'expert': f'Expert {expert_idx+1}',
+                            'dimension': f'θ{dim_idx+1}',
+                            'angle': angle
+                        })
+    
+    if not rotation_data:
+        print("   ⚠️ No valid rotation data for ridgeline plot.")
+        return
+    
+    rotation_df = pd.DataFrame(rotation_data)
+    
+    # Create ridgeline-style plot using seaborn FacetGrid
+    fig, axes = plt.subplots(len(rotation_df['expert'].unique()), 1, 
+                            figsize=(12, 3 * len(rotation_df['expert'].unique())), 
+                            sharex=True)
+    
+    if len(rotation_df['expert'].unique()) == 1:
+        axes = [axes]
+    
+    experts = sorted(rotation_df['expert'].unique())
+    colors = sns.color_palette("husl", len(rotation_df['dimension'].unique()))
+    
+    for i, expert in enumerate(experts):
+        expert_data = rotation_df[rotation_df['expert'] == expert]
+        
+        for j, dimension in enumerate(sorted(expert_data['dimension'].unique())):
+            dim_data = expert_data[expert_data['dimension'] == dimension]
+            
+            # Create density plot
+            sns.kdeplot(
+                data=dim_data, 
+                x='angle', 
+                ax=axes[i],
+                fill=True,
+                alpha=0.6,
+                color=colors[j],
+                label=dimension
+            )
+        
+        axes[i].set_title(f'{expert} - Rotation Angle Distributions', fontweight='bold')
+        axes[i].set_ylabel('Density')
+        axes[i].legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        axes[i].grid(True, alpha=0.3)
+    
+    axes[-1].set_xlabel('Rotation Angle (radians)')
+    plt.suptitle('Rotation Angle Distributions by Expert\n(Ridgeline-Style Density Plot)', 
+                fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+def plot_loss_component_relationships_pairplot(df, output_path):
+    """📊 Pairplot showing relationships between geometric loss components."""
+    if 'geometric_components' not in df.columns:
+        print("   ⚠️ No geometric loss components data found. Skipping pairplot.")
+        return
+    
+    # Extract geometric components into a clean DataFrame
+    components_list = []
+    for comp_entry in df['geometric_components']:
+        if comp_entry and isinstance(comp_entry, dict):
+            # Only include the main components, skip total_loss
+            component_dict = {k: v for k, v in comp_entry.items() if k != 'total_loss'}
+            if component_dict:
+                components_list.append(component_dict)
+    
+    if not components_list:
+        print("   ⚠️ No valid components data for pairplot.")
+        return
+    
+    components_df = pd.DataFrame(components_list)
+    
+    # Clean column names
+    components_df.columns = [col.replace('_', ' ').title() for col in components_df.columns]
+    
+    # Create pairplot with enhanced styling
+    plt.figure(figsize=(12, 10))
+    
+    # Create the pairplot
+    g = sns.pairplot(
+        components_df,
+        diag_kind='kde',    # KDE plots on diagonal
+        plot_kws={'alpha': 0.6, 's': 50},  # Scatter plot styling
+        diag_kws={'fill': True, 'alpha': 0.7}  # KDE styling
+    )
+    
+    # Enhance the plot
+    g.fig.suptitle('Geometric Loss Components Relationships\n(Pairwise Correlations)', 
+                   fontsize=14, fontweight='bold', y=1.02)
+    
+    # Add correlation coefficients to upper triangle
+    for i in range(len(components_df.columns)):
+        for j in range(i+1, len(components_df.columns)):
+            corr = components_df.iloc[:, i].corr(components_df.iloc[:, j])
+            g.axes[i, j].text(0.5, 0.5, f'r = {corr:.3f}', 
+                            transform=g.axes[i, j].transAxes,
+                            ha='center', va='center',
+                            fontsize=12, fontweight='bold',
+                            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+    
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+def plot_expert_activation_timeline_heatmap(df, output_path):
+    """🔥 Timeline heatmap showing expert activation patterns over training."""
+    if 'expert_loads' not in df.columns:
+        print("   ⚠️ No expert loads data found. Skipping timeline heatmap.")
+        return
+    
+    # Extract primary expert activations over time
+    activation_data = []
+    steps = []
+    
+    for step_idx, loads_entry in enumerate(df['expert_loads']):
+        if loads_entry and isinstance(loads_entry, dict) and 'primary' in loads_entry:
+            step = df['step'].iloc[step_idx] if step_idx < len(df['step']) else step_idx
+            steps.append(step)
+            activation_data.append(loads_entry['primary'])
+    
+    if not activation_data:
+        print("   ⚠️ No valid activation data for timeline heatmap.")
+        return
+    
+    # Convert to matrix format
+    activation_matrix = np.array(activation_data)  # [timesteps, experts]
+    
+    plt.figure(figsize=(14, 8))
+    
+    # Create timeline heatmap
+    sns.heatmap(
+        activation_matrix.T,  # Transpose so experts are on y-axis
+        xticklabels=[f'Step {s}' for s in steps[::max(1, len(steps)//10)]],  # Show every 10th step
+        yticklabels=[f'Expert {i+1}' for i in range(activation_matrix.shape[1])],
+        cmap='YlOrRd',
+        cbar_kws={'label': 'Activation Level'},
+        linewidths=0.5,
+        linecolor='white'
+    )
+    
+    plt.title('Expert Activation Timeline Heatmap\n(Activation Patterns Over Training)', 
+              fontsize=14, fontweight='bold')
+    plt.xlabel('Training Steps')
+    plt.ylabel('Experts')
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
 def detect_training_mode(df, config_data=None):
     """Detect the training mode based on available data columns."""
     # Check config first if available
@@ -625,6 +848,12 @@ def run_analysis(log_path):
         plot_rotation_pattern_similarity_heatmap(df, os.path.join(output_dir, "plot_rotation_pattern_similarity_heatmap.png"))
         plot_rotation_magnitude_heatmap(df, os.path.join(output_dir, "plot_rotation_magnitude_heatmap.png"))
         plot_expert_activation_correlation_heatmap(df, os.path.join(output_dir, "plot_expert_activation_correlation_heatmap.png"))
+        
+        # 🎨 CUTTING-EDGE SEABORN VISUALIZATIONS 🎨
+        plot_geometric_loss_distribution_violin(df, os.path.join(output_dir, "plot_geometric_loss_distribution_violin.png"))
+        plot_rotation_evolution_ridgeline(df, os.path.join(output_dir, "plot_rotation_evolution_ridgeline.png"))
+        plot_loss_component_relationships_pairplot(df, os.path.join(output_dir, "plot_loss_component_relationships_pairplot.png"))
+        plot_expert_activation_timeline_heatmap(df, os.path.join(output_dir, "plot_expert_activation_timeline_heatmap.png"))
         
         # Also plot ghost metrics if available (geometric + ghost combination)
         if 'ghost_activations' in df.columns and 'saturation_level' in df.columns:
