@@ -1,0 +1,84 @@
+# ===============================================================================
+# GNN-MoE-2: Geometric Constrained Learning Requirements
+# ===============================================================================
+# This requirements file ensures reproducible environments for the revolutionary
+# Geometric Constrained Learning system with HGNN-MoE architecture.
+#
+# Installation Instructions:
+# 1. Create a virtual environment: python -m venv venv
+# 2. Activate it: source venv/bin/activate (Linux/Mac) or venv\Scripts\activate (Windows)
+# 3. Install requirements: pip install -r requirements.txt
+#
+# For Google Colab:
+# !pip install -r requirements.txt
+# ===============================================================================
+
+# Core Deep Learning Framework
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
+
+# Hugging Face Transformers for tokenization and model utilities
+transformers>=4.30.0
+tokenizers>=0.13.0
+
+# Data Science & Numerical Computing
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Visualization & Analysis (Enhanced Seaborn Integration)
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# PyTorch Geometric for HGNN Components
+# IMPORTANT: PyTorch Geometric installation can be system-specific
+# For the most reliable installation, visit:
+# https://pytorch-geometric.readthedocs.io/en/latest/install/installation.html
+# 
+# Quick install for most systems:
+# pip install torch_geometric
+# 
+# If you encounter issues, try the system-specific wheel:
+# pip install torch_geometric -f https://data.pyg.org/whl/torch-{torch_version}+{cuda_version}.html
+torch_geometric>=2.3.0
+
+# Dataset Handling
+datasets>=2.12.0
+
+# Progress Bars and Utilities
+tqdm>=4.65.0
+
+# Development and Testing (Optional)
+pytest>=7.0.0
+jupyter>=1.0.0
+
+# ===============================================================================
+# Platform-Specific Notes:
+# ===============================================================================
+# 
+# CUDA Support:
+# - If you have NVIDIA GPU with CUDA, PyTorch should automatically detect it
+# - For specific CUDA versions, visit: https://pytorch.org/get-started/locally/
+#
+# Apple Silicon (M1/M2 Macs):
+# - PyTorch has native MPS (Metal Performance Shaders) support
+# - All packages should install correctly with the above versions
+#
+# Google Colab:
+# - PyTorch and CUDA are pre-installed
+# - You may only need to install: torch_geometric, seaborn>=0.12.0
+#
+# Windows:
+# - All packages should install correctly
+# - If torch_geometric fails, try the wheel installation method above
+#
+# ===============================================================================
+# Research & Development Features:
+# ===============================================================================
+# This system includes cutting-edge capabilities:
+# - 🎯 Geometric Constrained Learning (revolutionary training paradigm)
+# - 🔗 Hypergraph Neural Networks (HGNN) for expert coupling
+# - 👻 Ghost Expert systems for dynamic capacity expansion
+# - 🎨 Advanced Seaborn visualizations for training analysis
+# - 📊 15+ specialized plots for geometric loss analysis
+# ===============================================================================
