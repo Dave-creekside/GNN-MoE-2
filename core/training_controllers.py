@@ -267,7 +267,9 @@ class GeometricTrainingController(TrainingController):
             input_embeddings = self.model.token_emb(inputs)  # [batch, seq, embed_dim]
         
         # THE REVOLUTIONARY STEP: Rotate data presentations for each expert
+        print("DEBUG: Rotating data presentations...")
         rotated_presentations = self.data_rotator.rotate_data_for_experts(input_embeddings)
+        print("DEBUG: Data rotation complete.")
         
         # Process each expert with its optimal data presentation
         expert_logits = []
@@ -279,9 +281,12 @@ class GeometricTrainingController(TrainingController):
             expert_hidden_states.append(hidden_state)
         
         # Get rotation angles for loss computation
+        print("DEBUG: Getting rotation angles...")
         rotation_angles = self.data_rotator.get_rotation_angles()
+        print("DEBUG: Rotation angles obtained.")
         
         # Compute geometric loss - use logits for task loss, hidden states for orthogonality
+        print("DEBUG: Computing geometric loss...")
         geometric_loss, loss_components = self.loss_computer.compute_geometric_loss(
             expert_outputs=expert_logits,  # Use logits for task loss
             expert_hidden_states=expert_hidden_states,  # Use hidden states for orthogonality
@@ -290,9 +295,12 @@ class GeometricTrainingController(TrainingController):
             rotation_angles=rotation_angles,
             model=self.model
         )
+        print("DEBUG: Geometric loss computed.")
         
         # Backward pass and optimization
+        print("DEBUG: Performing backward pass...")
         geometric_loss.backward()
+        print("DEBUG: Backward pass complete.")
         
         # Update rotation parameters (higher learning rate)
         self.rotation_optimizer.step()
