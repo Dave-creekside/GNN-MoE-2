@@ -284,8 +284,14 @@ class PrimaryGhostLRScheduler:
     def __init__(self, config: MoEConfig, optimizer):
         self.optimizer = optimizer
         self.config = config
+        
+        # Safety check for T_max
+        t_max = config.max_steps if config.max_steps is not None and config.max_steps > 0 else 100
+        if config.max_steps is None or config.max_steps <= 0:
+            print(f"Warning: max_steps is {config.max_steps}, using fallback T_max={t_max}")
+        
         self.primary_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=config.max_steps
+            optimizer, T_max=t_max
         )
         self.use_ghosts = config.ghost.num_ghost_experts > 0
         if self.use_ghosts:

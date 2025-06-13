@@ -1,0 +1,26 @@
+[
+  {
+    "question": "What is the capital of France?",
+    "answer": "Paris",
+    "reasoning": "This should be filtered out during processing",
+    "metadata": "This should also be filtered out"
+  },
+  {
+    "question": "What is 2 + 2?",
+    "answer": "4",
+    "reasoning": "Simple arithmetic",
+    "extra_field": "Should be ignored"
+  },
+  {
+    "question": "What is the largest planet in our solar system?",
+    "answer": "Jupiter",
+    "reasoning": "Jupiter is the largest planet",
+    "source": "astronomy"
+  },
+  {
+    "question": "Who wrote Romeo and Juliet?", 
+    "answer": "William Shakespeare",
+    "reasoning": "Shakespeare is the famous playwright",
+    "year": 1595
+  }
+]

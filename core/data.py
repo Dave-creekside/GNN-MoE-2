@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-gnn_moe_data.py
+data.py
 
 Data loading utilities for GNN-Coupled MoE models.
-- SimpleTextDataset
-- load_data function
+Supports both legacy on-the-fly tokenization and new pretokenized pipeline.
 """
 
 import torch
@@ -15,6 +14,8 @@ import os
 from transformers import AutoTokenizer
 
 from .config import MoEConfig
+from .preprocessor import DatasetPreprocessor
+from .pretokenized_data import load_pretokenized_data
 
 class SimpleTextDataset(Dataset):
     def __init__(self, texts, tokenizer, max_length=128):
@@ -293,3 +294,50 @@ def load_data(config: MoEConfig):
     eval_loader = DataLoader(eval_dataset, batch_size=config.batch_size, shuffle=False, num_workers=config.num_workers_dataloader, pin_memory=True)
     
     return train_loader, eval_loader, tokenizer, data_mode
+
+def load_data_with_preprocessing(config: MoEConfig):
+    """
+    Main data loading function with automatic preprocessing.
+    Always uses pretokenized data for maximum performance.
+    """
+    print(f"🚀 Setting up data loading with preprocessing...")
+    
+    # Initialize preprocessor
+    preprocessor = DatasetPreprocessor(config)
+    
+    # Check if pretokenized dataset exists
+    if not preprocessor.dataset_exists():
+        print(f"   🔄 Pretokenized dataset not found. Starting preprocessing...")
+        try:
+            dataset_path = preprocessor.preprocess_dataset()
+            print(f"   ✅ Preprocessing complete: {dataset_path}")
+        except Exception as e:
+            print(f"   ❌ Preprocessing failed: {str(e)}")
+            raise
+    else:
+        print(f"   ✅ Using existing pretokenized dataset: {preprocessor.get_dataset_path()}")
+    
+    # Load pretokenized data
+    try:
+        train_loader, eval_loader, vocab_size, data_mode = load_pretokenized_data(config)
+        
+        # Update config vocab size if needed
+        if config.vocab_size != vocab_size:
+            config.vocab_size = vocab_size
+        
+        # Create a dummy tokenizer for compatibility (not used in training)
+        tokenizer = AutoTokenizer.from_pretrained('gpt2')
+        tokenizer.pad_token = tokenizer.eos_token
+        
+        return train_loader, eval_loader, tokenizer, data_mode
+        
+    except Exception as e:
+        print(f"   ❌ Failed to load pretokenized data: {str(e)}")
+        print(f"   🔄 Falling back to legacy data loading...")
+        # Fallback to legacy loading if pretokenized fails
+        return load_data(config)
+
+# For backward compatibility, make the new function the default
+def load_data_fast(config: MoEConfig):
+    """Fast data loading with automatic preprocessing (recommended)."""
+    return load_data_with_preprocessing(config)

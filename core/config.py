@@ -104,13 +104,16 @@ class MoEConfig:
     # --- Dataset Parameters ---
     dataset_source: str = "huggingface" # or "local_file"
     dataset_name: str = "wikitext"
-    dataset_config_name: str = "wikitext-2-v1"
+    dataset_config_name: str = "wikitext-103-v1"
     num_train_samples: int = 2000
     num_eval_samples: int = 400
     num_workers_dataloader: int = 4
 
     # --- Memory Optimization ---
     use_mixed_precision: bool = True  # Enable mixed precision for geometric rotations
+    
+    # --- Dataset Preprocessing ---
+    force_reprocess: bool = False  # Force reprocessing of datasets (ignore cache)
 
     def __post_init__(self):
         """Set feature flags based on architecture_mode for easy configuration."""
@@ -130,6 +133,21 @@ class MoEConfig:
             self.use_hypergraph_coupling = True
             self.use_orthogonal_loss = True
             # num_ghost_experts is configured by the user
+        
+        # Calculate max_steps if not provided
+        if self.max_steps is None:
+            # Estimate batches per epoch
+            if self.max_batches_per_epoch == -1:
+                # Use all available data
+                estimated_batches = max(1, self.num_train_samples // self.batch_size)
+            else:
+                estimated_batches = self.max_batches_per_epoch
+            
+            self.max_steps = self.epochs * estimated_batches
+            
+            # Ensure minimum value for scheduler
+            if self.max_steps <= 0:
+                self.max_steps = 100  # Fallback minimum
         
         # Adjust num_heads if embed_dim is not divisible
         if self.embed_dim % self.num_heads != 0:

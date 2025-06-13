@@ -1,0 +1,18 @@
+{
+  "dataset_source": "huggingface",
+  "dataset_name": "openai/gsm8k",
+  "dataset_config_name": "main",
+  "tokenizer": "gpt2",
+  "max_seq_length": 256,
+  "vocab_size": 50257,
+  "num_train_samples": 100,
+  "num_eval_samples": 20,
+  "train_shape": [
+    100,
+    256
+  ],
+  "eval_shape": [
+    20,
+    256
+  ]
+}

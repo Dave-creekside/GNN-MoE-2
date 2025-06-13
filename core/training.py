@@ -23,6 +23,7 @@ from .config import MoEConfig
 from .architecture import MoEModel, create_dynamic_optimizer, PrimaryGhostLRScheduler
 from .training_controllers import create_training_controller
 from .graceful_exit import setup_graceful_exit, check_exit_requested, cleanup_and_exit
+from .data import load_data_with_preprocessing
 
 def save_checkpoint(state, is_best, checkpoint_dir="checkpoints", filename="checkpoint.pt"):
     if not os.path.exists(checkpoint_dir):

@@ -29,7 +29,8 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 from core.config import MoEConfig, HGNNParams, GhostParams, GeometricTrainingConfig
 from core.architecture import MoEModel, create_dynamic_optimizer, PrimaryGhostLRScheduler
 from core.training import load_checkpoint, train_model
-from core.data import load_data
+from core.data import load_data_with_preprocessing, load_data
+from core.dataset_manager import DatasetManager
 from core.analysis import run_analysis
 
 _VERBOSE = True
@@ -87,6 +88,12 @@ def get_args():
     parser.add_argument('--dataset_source', type=str, choices=['huggingface', 'local_file'], help="Source type for dataset.")
     parser.add_argument('--training_mode', type=str, choices=['standard', 'geometric'], help="Training paradigm to use.")
 
+    # --- Dataset Management Commands ---
+    parser.add_argument('--list-datasets', action='store_true', help="List all pretokenized datasets and exit.")
+    parser.add_argument('--clean-datasets', action='store_true', help="Delete all pretokenized datasets and exit.")
+    parser.add_argument('--clean-invalid', action='store_true', help="Clean invalid/incomplete datasets and exit.")
+    parser.add_argument('--reprocess', action='store_true', help="Force reprocessing of datasets (ignore cache).")
+
     # --- Geometric Training Arguments ---
     parser.add_argument('--geometric_enabled', action='store_true', help="Enable geometric training.")
     parser.add_argument('--geometric_learning_rate', type=float, help="Learning rate for rotation parameters.")
@@ -123,8 +130,35 @@ if __name__ == "__main__":
     if args.quiet:
         _VERBOSE = False
 
+    # Handle dataset management commands first
+    if hasattr(args, 'list_datasets') and args.list_datasets:
+        print("🗂️  Dataset Management - Listing all pretokenized datasets")
+        manager = DatasetManager()
+        manager.print_datasets_summary()
+        exit(0)
+    
+    if hasattr(args, 'clean_datasets') and args.clean_datasets:
+        print("🧹 Dataset Management - Cleaning all pretokenized datasets")
+        manager = DatasetManager()
+        if manager.clean_all_datasets():
+            print("✅ All datasets cleaned successfully")
+        else:
+            print("❌ Failed to clean some datasets")
+        exit(0)
+    
+    if hasattr(args, 'clean_invalid') and args.clean_invalid:
+        print("🔧 Dataset Management - Cleaning invalid datasets")
+        manager = DatasetManager()
+        cleaned_count = manager.clean_invalid_datasets()
+        print(f"✅ Cleaned {cleaned_count} invalid dataset(s)")
+        exit(0)
+
     # Create config from args, filtering out None values so defaults are used
-    config_args = {k: v for k, v in vars(args).items() if v is not None and k != 'quiet'}
+    config_args = {k: v for k, v in vars(args).items() if v is not None and k not in ['quiet', 'list_datasets', 'clean_datasets', 'clean_invalid']}
+    
+    # Handle reprocess flag
+    if hasattr(args, 'reprocess') and args.reprocess:
+        config_args['force_reprocess'] = True
     
     # Separate nested config args
     hgnn_args = {k.replace('hgnn_', '', 1): v for k, v in config_args.items() if k.startswith('hgnn_')}
@@ -168,7 +202,7 @@ if __name__ == "__main__":
     verbose_print(f"📁 Checkpoint directory: {cfg.checkpoint_dir}")
 
     selected_device = setup_environment(cfg)
-    train_loader, eval_loader, tokenizer, data_mode = load_data(cfg)
+    train_loader, eval_loader, tokenizer, data_mode = load_data_with_preprocessing(cfg)
     
     # --- Model Initialization ---
     model = MoEModel(cfg).to(selected_device)
