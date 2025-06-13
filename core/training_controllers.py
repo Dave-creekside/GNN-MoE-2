@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 
 from .config import MoEConfig
 from .architecture import create_dynamic_optimizer, PrimaryGhostLRScheduler
@@ -209,7 +209,7 @@ class GeometricTrainingController(TrainingController):
         if config.training_mode != "geometric":
             raise ValueError("GeometricTrainingController requires training_mode='geometric'")
         
-        # Import geometric components
+        # Import original geometric components
         from .geometric_training import GeometricDataRotator, GeometricLossComputer, LambdaCalculusGeometricRotator
         
         # Initialize geometric components
@@ -219,6 +219,8 @@ class GeometricTrainingController(TrainingController):
             self.data_rotator = GeometricDataRotator(config).to(self.device)
         
         self.loss_computer = GeometricLossComputer(config)
+        self.memory_monitor = None
+        self.use_streaming = False
         
         # Separate optimizers for geometric vs expert parameters
         self.rotation_optimizer = torch.optim.Adam(
@@ -327,6 +329,7 @@ class GeometricTrainingController(TrainingController):
         self.update_metrics(geometric_loss.item(), current_metrics)
         
         return geometric_loss
+    
     
     def _forward_expert(self, expert_idx: int, rotated_data: torch.Tensor, attention_mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Forward pass through a specific expert with its optimally rotated data."""
