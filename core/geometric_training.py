@@ -194,12 +194,8 @@ class GeometricDataRotator(nn.Module):
             
             # Clear intermediate tensors to free memory immediately
             del rotated_flat, rotation_matrix
-            # Device-agnostic memory cleanup (less aggressive to avoid device placement issues)
-            if expert_idx < self.num_experts - 1:  # Don't clear on last iteration
-                if hasattr(torch, 'cuda') and torch.cuda.is_available() and flat_data.device.type == 'cuda':
-                    torch.cuda.empty_cache()
-                elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available() and flat_data.device.type == 'mps':
-                    torch.mps.empty_cache()
+            # PERFORMANCE FIX: Removed cache clearing - was causing 10x+ slowdown!
+            # The cache clearing after every expert was devastating performance
         
         return rotated_presentations
 
@@ -238,10 +234,7 @@ class GeometricDataRotator(nn.Module):
             
             # Device-agnostic memory cleanup
             del rotated_flat, rotation_matrix
-            if hasattr(torch, 'cuda') and torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-                torch.mps.empty_cache()
+            # PERFORMANCE FIX: Removed cache clearing here too - major slowdown!
     
     def get_rotation_angles(self) -> torch.Tensor:
         """Get current rotation angles for analysis and visualization."""

@@ -22,6 +22,7 @@ import numpy as np
 from .config import MoEConfig
 from .architecture import MoEModel, create_dynamic_optimizer, PrimaryGhostLRScheduler
 from .training_controllers import create_training_controller
+from .graceful_exit import setup_graceful_exit, check_exit_requested, cleanup_and_exit
 
 def save_checkpoint(state, is_best, checkpoint_dir="checkpoints", filename="checkpoint.pt"):
     if not os.path.exists(checkpoint_dir):
@@ -101,6 +102,67 @@ def update_parameter_group_lrs(optimizer, primary_lr, ghost_lrs):
         elif param_group['name'] == 'ghost_experts' and ghost_lrs:
             param_group['lr'] = ghost_lrs[0]
 
+def ensure_json_serializable(value):
+    """OPTIMIZED: Single global function for JSON serialization."""
+    if torch.is_tensor(value): 
+        return value.cpu().detach().numpy().tolist()
+    if isinstance(value, np.ndarray): 
+        return value.tolist()
+    return value
+
+class BatchedLogger:
+    """OPTIMIZED: Batched logging to reduce I/O overhead."""
+    
+    def __init__(self, checkpoint_dir, batch_size=50):
+        self.checkpoint_dir = checkpoint_dir
+        self.batch_size = batch_size
+        self.log_buffer = []
+        self.log_path = os.path.join(checkpoint_dir, 'training_log.json')
+        
+    def add_entry(self, log_entry):
+        """Add log entry to buffer."""
+        self.log_buffer.append(log_entry)
+        
+        # Flush buffer if it's full
+        if len(self.log_buffer) >= self.batch_size:
+            self.flush()
+    
+    def flush(self):
+        """Write buffered logs to disk."""
+        if not self.log_buffer:
+            return
+            
+        # Load existing logs if they exist
+        existing_logs = []
+        if os.path.exists(self.log_path):
+            try:
+                with open(self.log_path, 'r') as f:
+                    existing_logs = json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                existing_logs = []
+        
+        # Append new logs
+        existing_logs.extend(self.log_buffer)
+        
+        # Write back to file
+        with open(self.log_path, 'w') as f:
+            json.dump(existing_logs, f, indent=4)
+        
+        # Clear buffer
+        self.log_buffer.clear()
+    
+    def get_all_logs(self):
+        """Get all logs (buffered + persisted)."""
+        all_logs = []
+        if os.path.exists(self.log_path):
+            try:
+                with open(self.log_path, 'r') as f:
+                    all_logs = json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                all_logs = []
+        
+        return all_logs + self.log_buffer
+
 def log_training_metrics(step, total_loss, base_loss, orthogonality_loss, model, primary_lr, ghost_lrs):
     print(f"Step {step}: Total Loss: {total_loss.item():.4f}, Base Loss: {base_loss.item():.4f}, Ortho Loss: {orthogonality_loss.item():.4f}")
     if model.config.ghost.num_ghost_experts > 0:
@@ -121,6 +183,9 @@ def standard_training_loop(model: MoEModel, optimizer, scheduler, train_loader, 
         print("Warning: total_steps is 0. No training will occur.")
         return [], float('inf')
 
+    # Setup graceful exit monitoring
+    exit_monitor = setup_graceful_exit()
+
     training_log = []
     best_eval_loss = initial_best_loss
     current_step = resume_step
@@ -134,6 +199,11 @@ def standard_training_loop(model: MoEModel, optimizer, scheduler, train_loader, 
         for batch_idx, batch in enumerate(pbar_train):
             if batch_idx >= actual_batches_per_epoch:
                 break
+
+            # Check for graceful exit request
+            if check_exit_requested():
+                cleanup_and_exit(model, optimizer, scheduler, config, current_step, epoch, best_eval_loss)
+                return training_log, best_eval_loss
 
             input_ids, attention_mask, labels = prepare_batch(batch, device)
             
@@ -275,6 +345,9 @@ def controller_training_loop(model: MoEModel, train_loader, eval_loader, device,
         print("Warning: total_steps is 0. No training will occur.")
         return [], float('inf')
 
+    # Setup graceful exit monitoring
+    exit_monitor = setup_graceful_exit()
+
     training_log = []
     best_eval_loss = initial_best_loss
     current_step = resume_step
@@ -291,6 +364,16 @@ def controller_training_loop(model: MoEModel, train_loader, eval_loader, device,
             if batch_idx >= actual_batches_per_epoch:
                 break
 
+            # Check for graceful exit request
+            if check_exit_requested():
+                # For controller training, get optimizers and schedulers from controller
+                controller_optimizers = training_controller.get_optimizers()
+                controller_schedulers = training_controller.get_schedulers()
+                optimizer = controller_optimizers[0] if controller_optimizers else None
+                scheduler = controller_schedulers[0] if controller_schedulers else None
+                cleanup_and_exit(model, optimizer, scheduler, config, current_step, epoch, best_eval_loss)
+                return training_log, best_eval_loss
+
             # Prepare batch data
             batch_dict = {
                 'input_ids': batch['input_ids'],
@@ -306,13 +389,6 @@ def controller_training_loop(model: MoEModel, train_loader, eval_loader, device,
             current_lr = controller_metrics.get('learning_rate', config.learning_rate)
             
             pbar_train.set_postfix({'loss': f'{loss.item():.3f}', 'lr': f"{current_lr:.1e}"})
-
-            pbar_train.set_postfix({'loss': f'{loss.item():.3f}', 'lr': f"{current_lr:.1e}"})
-
-            def ensure_json_serializable(value):
-                if torch.is_tensor(value): return value.cpu().detach().numpy().tolist()
-                if isinstance(value, np.ndarray): return value.tolist()
-                return value
 
             # --- Frequent, Lightweight Logging ---
             if current_step % config.log_every == 0:
