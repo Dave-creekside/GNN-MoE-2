@@ -69,3 +69,6 @@ huggingface/
 
 # Specific project output files
 sweep_results_*.csv
+
+# Data cache files (large binary files)
+data_cache/
