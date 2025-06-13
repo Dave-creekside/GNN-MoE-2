@@ -109,6 +109,9 @@ class MoEConfig:
     num_eval_samples: int = 400
     num_workers_dataloader: int = 4
 
+    # --- Memory Optimization ---
+    use_mixed_precision: bool = True  # Enable mixed precision for geometric rotations
+
     def __post_init__(self):
         """Set feature flags based on architecture_mode for easy configuration."""
         if self.architecture_mode == 'gnn':

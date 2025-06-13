@@ -116,8 +116,7 @@ class GeometricDataRotator(nn.Module):
         """
         Present the same data optimally to each expert via learned theta rotations.
         
-        This is the revolutionary core: instead of changing expert weights,
-        we change how data is presented to each expert's fixed geometry.
+        MEMORY OPTIMIZED VERSION: Computes rotations on-demand with mixed precision.
         
         Args:
             input_data: [batch_size, seq_len, embed_dim]
@@ -125,28 +124,58 @@ class GeometricDataRotator(nn.Module):
         Returns:
             List of rotated data presentations, one optimized for each expert
         """
-        rotation_matrices = self.compute_rotation_matrices()
-        
         rotated_presentations = []
-        for expert_idx, rotation_matrix in enumerate(rotation_matrices):
-            # Apply learned rotation to present data optimally for this expert
-            batch_size, seq_len, embed_dim = input_data.shape
+        batch_size, seq_len, embed_dim = input_data.shape
+        
+        # Pre-flatten input data once for efficiency
+        flat_data = input_data.view(-1, embed_dim)  # [batch_size * seq_len, embed_dim]
+        
+        for expert_idx in range(self.num_experts):
+            # Compute rotation matrix just-in-time (no pre-computation of all matrices)
+            with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=self.config.use_mixed_precision):
+                theta = self.theta_parameters[expert_idx]
+                rotation_matrix = self.create_rotation_matrix(theta)
+                
+                # Apply rotation in mixed precision
+                rotated_flat = torch.mm(flat_data.half(), rotation_matrix.half().t()).float()
             
-            # Reshape for matrix multiplication
-            flat_data = input_data.view(-1, embed_dim)  # [batch_size * seq_len, embed_dim]
-            
-            # Apply rotation
-            rotated_flat = torch.mm(flat_data, rotation_matrix.t())
-            
-            # Reshape back
+            # Reshape back to original dimensions
             rotated_data = rotated_flat.view(batch_size, seq_len, embed_dim)
             
-            # Apply expert-specific projector for additional learned transformation
+            # Apply expert-specific projector (keep in full precision)
             rotated_data = self.rotation_projectors[expert_idx](rotated_data)
             
             rotated_presentations.append(rotated_data)
+            
+            # Clear intermediate tensors to free memory immediately
+            del rotated_flat, rotation_matrix
+            if expert_idx < self.num_experts - 1:  # Don't clear on last iteration
+                torch.cuda.empty_cache()
         
         return rotated_presentations
+
+    def rotate_data_for_experts_generator(self, input_data: torch.Tensor):
+        """
+        Memory-efficient generator version that yields rotations on-demand.
+        Use this for even lower memory usage when processing experts sequentially.
+        """
+        batch_size, seq_len, embed_dim = input_data.shape
+        flat_data = input_data.view(-1, embed_dim)
+        
+        for expert_idx in range(self.num_experts):
+            with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=self.config.use_mixed_precision):
+                theta = self.theta_parameters[expert_idx]
+                rotation_matrix = self.create_rotation_matrix(theta)
+                rotated_flat = torch.mm(flat_data.half(), rotation_matrix.half().t()).float()
+            
+            rotated_data = rotated_flat.view(batch_size, seq_len, embed_dim)
+            rotated_data = self.rotation_projectors[expert_idx](rotated_data)
+            
+            yield rotated_data
+            
+            # Immediate cleanup
+            del rotated_flat, rotation_matrix
+            torch.cuda.empty_cache()
     
     def get_rotation_angles(self) -> torch.Tensor:
         """Get current rotation angles for analysis and visualization."""
