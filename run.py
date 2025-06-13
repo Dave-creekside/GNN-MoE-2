@@ -12,7 +12,19 @@ import argparse
 import numpy as np
 import random
 import json
+import warnings
 from dataclasses import fields
+
+# --- Suppress Warnings ---
+# Suppress NotOpenSSLWarning
+try:
+    from urllib3.exceptions import NotOpenSSLWarning
+    warnings.filterwarnings("ignore", category=NotOpenSSLWarning)
+except ImportError:
+    pass
+
+# Suppress tokenizers parallelism warning
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 from core.config import MoEConfig, HGNNParams, GhostParams, GeometricTrainingConfig
 from core.architecture import MoEModel, create_dynamic_optimizer, PrimaryGhostLRScheduler

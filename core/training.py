@@ -157,6 +157,32 @@ def standard_training_loop(model: MoEModel, optimizer, scheduler, train_loader, 
             
             pbar_train.set_postfix({'loss': f'{total_loss.item():.3f}', 'lr': f"{primary_lr:.1e}"})
 
+            def ensure_json_serializable(value):
+                if torch.is_tensor(value): return value.cpu().detach().numpy().tolist()
+                if isinstance(value, np.ndarray): return value.tolist()
+                return value
+
+            # --- Frequent, Lightweight Logging ---
+            if current_step % config.log_every == 0:
+                expert_connections = {}
+                if config.use_hypergraph_coupling and hasattr(model.model_layers[0], 'coupler'):
+                    adj_matrix = model.model_layers[0].coupler.get_adjacency_matrix()
+                    expert_connections['adjacency_matrix'] = ensure_json_serializable(adj_matrix)
+
+                log_entry = {
+                    'step': int(current_step),
+                    'train_loss': float(total_loss.item()),
+                    'primary_lr': float(primary_lr),
+                    'ghost_lrs': ensure_json_serializable(ghost_lrs),
+                    'ghost_activations': ensure_json_serializable(model.get_current_ghost_activations()),
+                    'saturation_level': model.get_last_saturation_metrics().get('saturation_level', 0.0),
+                    'orthogonality_score': model.get_last_saturation_metrics().get('orthogonality_score', 0.0),
+                    'expert_connections': expert_connections,
+                    'expert_loads': model.get_expert_activation_loads()
+                }
+                training_log.append(log_entry)
+
+            # --- Evaluation and Checkpointing (Less Frequent) ---
             if current_step % config.eval_every == 0:
                 print()
                 eval_loss, perplexity = evaluate_model(model, eval_loader, device, config)
@@ -164,32 +190,12 @@ def standard_training_loop(model: MoEModel, optimizer, scheduler, train_loader, 
                 log_training_metrics(current_step, total_loss, base_loss, orthogonality_loss, model, primary_lr, ghost_lrs)
                 print(f"  Evaluation - Loss: {eval_loss:.4f}, Perplexity: {perplexity:.2f}")
 
-                def ensure_json_serializable(value):
-                    if torch.is_tensor(value): return value.cpu().detach().numpy().tolist()
-                    if isinstance(value, np.ndarray): return value.tolist()
-                    return value
-
-                expert_connections = {}
-                if config.use_hypergraph_coupling and hasattr(model.model_layers[0], 'coupler'):
-                    adj_matrix = model.model_layers[0].coupler.get_adjacency_matrix()
-                    expert_connections['adjacency_matrix'] = ensure_json_serializable(adj_matrix)
-
-                expert_loads = model.get_expert_activation_loads()
-
-                log_entry = {
-                    'step': int(current_step),
-                    'train_loss': float(total_loss.item()),
-                    'eval_loss': float(eval_loss),
-                    'eval_perplexity': float(perplexity),
-                    'primary_lr': float(primary_lr),
-                    'ghost_lrs': ensure_json_serializable(ghost_lrs),
-                    'ghost_activations': ensure_json_serializable(model.get_current_ghost_activations()),
-                    'saturation_level': model.get_last_saturation_metrics().get('saturation_level', 0.0),
-                    'orthogonality_score': model.get_last_saturation_metrics().get('orthogonality_score', 0.0),
-                    'expert_connections': expert_connections,
-                    'expert_loads': expert_loads
-                }
-                training_log.append(log_entry)
+                # Find the corresponding log entry to update with eval results
+                for log in reversed(training_log):
+                    if log['step'] == current_step:
+                        log['eval_loss'] = float(eval_loss)
+                        log['eval_perplexity'] = float(perplexity)
+                        break
                 
                 log_path = os.path.join(config.checkpoint_dir, 'training_log.json')
                 with open(log_path, 'w') as f:
@@ -301,6 +307,28 @@ def controller_training_loop(model: MoEModel, train_loader, eval_loader, device,
             
             pbar_train.set_postfix({'loss': f'{loss.item():.3f}', 'lr': f"{current_lr:.1e}"})
 
+            pbar_train.set_postfix({'loss': f'{loss.item():.3f}', 'lr': f"{current_lr:.1e}"})
+
+            def ensure_json_serializable(value):
+                if torch.is_tensor(value): return value.cpu().detach().numpy().tolist()
+                if isinstance(value, np.ndarray): return value.tolist()
+                return value
+
+            # --- Frequent, Lightweight Logging ---
+            if current_step % config.log_every == 0:
+                log_entry = {
+                    'step': int(current_step),
+                    'train_loss': float(loss.item()),
+                    'training_mode': config.training_mode,
+                    'controller_metrics': {k: ensure_json_serializable(v) for k, v in controller_metrics.items()}
+                }
+                if hasattr(model, 'get_expert_activation_loads'):
+                    log_entry['expert_loads'] = model.get_expert_activation_loads()
+                if hasattr(model, 'get_current_ghost_activations'):
+                    log_entry['ghost_activations'] = ensure_json_serializable(model.get_current_ghost_activations())
+                training_log.append(log_entry)
+
+            # --- Evaluation and Checkpointing (Less Frequent) ---
             if current_step % config.eval_every == 0:
                 print()
                 eval_loss, perplexity = evaluate_model(model, eval_loader, device, config)
@@ -315,28 +343,12 @@ def controller_training_loop(model: MoEModel, train_loader, eval_loader, device,
                     if key not in ['loss', 'learning_rate']:
                         print(f"  {key.replace('_', ' ').title()}: {value}")
 
-                def ensure_json_serializable(value):
-                    if torch.is_tensor(value): return value.cpu().detach().numpy().tolist()
-                    if isinstance(value, np.ndarray): return value.tolist()
-                    return value
-
-                # Build log entry with controller metrics
-                log_entry = {
-                    'step': int(current_step),
-                    'train_loss': float(loss.item()),
-                    'eval_loss': float(eval_loss),
-                    'eval_perplexity': float(perplexity),
-                    'training_mode': config.training_mode,
-                    'controller_metrics': {k: ensure_json_serializable(v) for k, v in controller_metrics.items()}
-                }
-                
-                # Add model-specific metrics if available
-                if hasattr(model, 'get_expert_activation_loads'):
-                    log_entry['expert_loads'] = model.get_expert_activation_loads()
-                if hasattr(model, 'get_current_ghost_activations'):
-                    log_entry['ghost_activations'] = ensure_json_serializable(model.get_current_ghost_activations())
-
-                training_log.append(log_entry)
+                # Find the corresponding log entry to update with eval results
+                for log in reversed(training_log):
+                    if log['step'] == current_step:
+                        log['eval_loss'] = float(eval_loss)
+                        log['eval_perplexity'] = float(perplexity)
+                        break
                 
                 log_path = os.path.join(config.checkpoint_dir, 'training_log.json')
                 with open(log_path, 'w') as f:

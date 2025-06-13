@@ -264,10 +264,8 @@ class GeometricLossComputer:
         loss_components = {}
         
         # 1. Task performance loss (standard language modeling) - use logits
-        print("DEBUG: Computing task loss...")
         try:
             task_loss = self._compute_task_loss(expert_outputs, targets)
-            print("DEBUG: Task loss computed.")
             if task_loss is not None and torch.isfinite(task_loss):
                 loss_components['task_loss'] = safe_item(task_loss)
             else:
@@ -278,10 +276,8 @@ class GeometricLossComputer:
             loss_components['task_loss'] = 0.0
         
         # 2. Orthogonality preservation loss - use hidden states (memory efficient)
-        print("DEBUG: Computing orthogonality loss...")
         try:
             orthogonality_loss = self._compute_orthogonality_preservation_loss(expert_hidden_states)
-            print("DEBUG: Orthogonality loss computed.")
             if orthogonality_loss is not None and torch.isfinite(orthogonality_loss):
                 loss_components['orthogonality_loss'] = safe_item(orthogonality_loss)
             else:
@@ -292,10 +288,8 @@ class GeometricLossComputer:
             loss_components['orthogonality_loss'] = 0.0
         
         # 3. Rotation efficiency loss
-        print("DEBUG: Computing rotation efficiency loss...")
         try:
             rotation_efficiency_loss = self._compute_rotation_efficiency_loss(rotation_angles)
-            print("DEBUG: Rotation efficiency loss computed.")
             if rotation_efficiency_loss is not None and torch.isfinite(rotation_efficiency_loss):
                 loss_components['rotation_efficiency_loss'] = safe_item(rotation_efficiency_loss)
             else:
@@ -306,10 +300,8 @@ class GeometricLossComputer:
             loss_components['rotation_efficiency_loss'] = 0.0
         
         # 4. Expert specialization loss - use hidden states
-        print("DEBUG: Computing expert specialization loss...")
         try:
             specialization_loss = self._compute_expert_specialization_loss(expert_hidden_states)
-            print("DEBUG: Expert specialization loss computed.")
             if specialization_loss is not None and torch.isfinite(specialization_loss):
                 loss_components['specialization_loss'] = safe_item(specialization_loss)
             else:

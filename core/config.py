@@ -98,6 +98,7 @@ class MoEConfig:
     learning_rate: float = 1e-4
     max_batches_per_epoch: int = -1  # -1 for all batches
     eval_every: int = 100
+    log_every: int = 25  # New parameter for frequent logging
     max_steps: Optional[int] = None # Calculated at runtime if not set
 
     # --- Dataset Parameters ---

@@ -9,7 +9,19 @@ An interactive CLI application for managing and experimenting with MoE models.
 import torch
 import os
 import json
+import warnings
 from transformers import AutoTokenizer
+
+# --- Suppress Warnings ---
+# Suppress NotOpenSSLWarning
+try:
+    from urllib3.exceptions import NotOpenSSLWarning
+    warnings.filterwarnings("ignore", category=NotOpenSSLWarning)
+except ImportError:
+    pass
+
+# Suppress tokenizers parallelism warning
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 from core.config import MoEConfig, HGNNParams, GhostParams
 from core.architecture import MoEModel, create_dynamic_optimizer, PrimaryGhostLRScheduler
@@ -17,6 +29,17 @@ from core.inference import generate_text
 from core.training import standard_training_loop, controller_training_loop, load_checkpoint
 from core.analysis import run_analysis
 from core.data import load_data
+
+# --- ANSI Color Codes ---
+class Colors:
+    GREEN = '\033[92m'
+    RED = '\033[91m'
+    YELLOW = '\033[93m'
+    BLUE = '\033[94m'
+    RESET = '\033[0m'
+
+def color_text(text, color):
+    return f"{color}{text}{Colors.RESET}"
 
 # --- Global State ---
 # This will hold the currently loaded model and its config
@@ -90,32 +113,44 @@ def model_menu():
 
 def run_inference_menu():
     """Menu for running inference with the loaded model."""
-    print_header("Run Inference")
-    print_model_status()
-    
-    try:
-        prompt = input("Enter your prompt: ")
-        max_length = int(input("Enter max new tokens [100]: ") or 100)
-        temperature = float(input("Enter temperature (e.g., 0.8) [0.8]: ") or 0.8)
-        top_k = int(input("Enter top-k sampling (e.g., 50) [50]: ") or 50)
-
-        output = generate_text(
-            model=state["model"],
-            tokenizer=state["tokenizer"],
-            prompt=prompt,
-            max_length=max_length,
-            temperature=temperature,
-            top_k=top_k
-        )
+    while True:
+        print_header("Run Inference")
+        print_model_status()
         
-        print("\n" + "="*20 + " GENERATED TEXT " + "="*20)
-        print(output)
-        print("="*56 + "\n")
+        try:
+            prompt = input("Enter your prompt (or 'b' to go back): ")
+            if prompt.lower() == 'b':
+                return
 
-    except Exception as e:
-        print(f"\nAn error occurred during inference: {e}")
-    
-    input("Press Enter to return to the Model Menu...")
+            max_length_str = input("Enter max new tokens [100]: ")
+            max_length = int(max_length_str) if max_length_str else 100
+
+            temperature_str = input("Enter temperature (e.g., 0.8) [0.8]: ")
+            temperature = float(temperature_str) if temperature_str else 0.8
+
+            top_k_str = input("Enter top-k sampling (e.g., 50) [50]: ")
+            top_k = int(top_k_str) if top_k_str else 50
+
+            print("\nGenerating text...")
+            output = generate_text(
+                model=state["model"],
+                tokenizer=state["tokenizer"],
+                prompt=prompt,
+                max_length=max_length,
+                temperature=temperature,
+                top_k=top_k
+            )
+            
+            print("\n" + "="*20 + " GENERATED TEXT " + "="*20)
+            print(output)
+            print("="*56 + "\n")
+
+        except ValueError:
+            print("\nInvalid input. Please enter a valid number.")
+        except Exception as e:
+            print(f"\nAn error occurred during inference: {e}")
+        
+        input("Press Enter to continue...")
 
 
 def view_config_menu():
@@ -327,31 +362,48 @@ def load_model_menu():
     print_header("Load Model")
     
     try:
-        path = input("Enter the full path to the checkpoint.pt file (e.g., checkpoints/my_run/checkpoint.pt): ")
+        path = input("Enter path to checkpoint.pt (or 'b' to go back): ")
+        if path.lower() == 'b':
+            return
+            
         if not os.path.exists(path):
-            print("\nFile not found!")
+            print(f"\n❌ Error: File not found at '{path}'")
             input("Press Enter to continue...")
             return
 
+        print("\nLoading model... this may take a moment.")
+        
         checkpoint_dir = os.path.dirname(path)
         config_path = os.path.join(checkpoint_dir, "config.json")
+        if not os.path.exists(config_path):
+            print(f"\n❌ Error: config.json not found in '{checkpoint_dir}'")
+            input("Press Enter to continue...")
+            return
+            
         with open(config_path, 'r') as f:
             config_dict = json.load(f)
         config = MoEConfig.from_dict(config_dict)
         
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using device: {device}")
+        
         tokenizer = AutoTokenizer.from_pretrained('gpt2')
         tokenizer.pad_token = tokenizer.eos_token
 
         model = MoEModel(config).to(device)
         optimizer = create_dynamic_optimizer(model, config)
-        # We need to calculate max_steps before creating the scheduler if it's not in the config
+        
+        # Calculate max_steps for scheduler if needed
         if config.max_steps is None:
              print("Loading data to determine training steps for scheduler...")
-             # This is a bit inefficient, but necessary to properly resume
-             temp_train_loader, _, _, _ = load_data(config)
-             actual_batches = len(temp_train_loader) if config.max_batches_per_epoch == -1 else min(len(temp_train_loader), config.max_batches_per_epoch)
-             config.max_steps = config.epochs * actual_batches
+             try:
+                 temp_train_loader, _, _, _ = load_data(config)
+                 actual_batches = len(temp_train_loader) if config.max_batches_per_epoch == -1 else min(len(temp_train_loader), config.max_batches_per_epoch)
+                 config.max_steps = config.epochs * actual_batches
+             except Exception as e:
+                 print(f"\n❌ Error loading data to configure scheduler: {e}")
+                 input("Press Enter to continue...")
+                 return
 
         scheduler = PrimaryGhostLRScheduler(config, optimizer)
 
@@ -368,11 +420,13 @@ def load_model_menu():
         })
         
         print("\n✅ Model loaded successfully!")
-        input("Press Enter to continue to the Model Menu...")
-        model_menu()
+        input("Press Enter to continue to the Main Menu...")
 
+    except json.JSONDecodeError as e:
+        print(f"\n❌ Error: Invalid JSON in config file: {e}")
+        input("Press Enter to continue...")
     except Exception as e:
-        print(f"\nAn error occurred while loading the model: {e}")
+        print(f"\nAn unexpected error occurred while loading the model: {e}")
         input("Press Enter to continue...")
 
 
@@ -461,11 +515,7 @@ def edit_geometric_config(config: MoEConfig):
     
     print("\n--- Geometric Training Configuration ---")
     
-    enabled = input(f"Enable geometric training [true/false] [{config.geometric.enabled}]: ")
-    if enabled.lower() in ['true', 'false']:
-        config.geometric.enabled = enabled.lower() == 'true'
-    
-    if config.geometric.enabled:
+    if config.training_mode == 'geometric':
         print("\nGeometric Training Parameters:")
         
         # Core geometric parameters
@@ -514,23 +564,40 @@ def train_new_model_menu():
     while True:
         clear_screen()
         print_header("Train New Model > Configuration Wizard")
-        print("\nCurrent Configuration:")
-        print(f" 1. Architecture: {config.architecture_mode}")
-        print(f" 2. Run Name: {config.run_name}")
-        print(f" 3. Batch Size: {config.batch_size}")
-        print(f" 4. Num Experts: {config.num_experts}")
-        print(f" 5. Num Ghost Experts: {config.ghost.num_ghost_experts if config.ghost else 0}")
-        print(f" 6. Dataset: {config.dataset_source} -> {config.dataset_name}")
-        print(f" 7. Advanced Configuration...")
-        print("\n[S] Start Training with these settings")
+        
+        # Display current configuration with color coding
+        print("\n--- Current Configuration ---")
+        print(f" 1. Architecture       : {config.architecture_mode}")
+        print(f" 2. Run Name           : {config.run_name}")
+        print(f" 3. Batch Size         : {color_text(config.batch_size, Colors.GREEN)}")
+        print(f" 4. Num Experts        : {color_text(config.num_experts, Colors.GREEN)}")
+        
+        ghost_color = Colors.GREEN if config.ghost.num_ghost_experts > 0 else Colors.RED
+        print(f" 5. Num Ghost Experts  : {color_text(config.ghost.num_ghost_experts, ghost_color)}")
+        
+        print(f" 6. Dataset            : {config.dataset_source} -> {config.dataset_name}")
+        print(f" 7. Training Mode      : {color_text(config.training_mode, Colors.YELLOW)}")
+        print(f" 8. Embed Dimension    : {color_text(config.embed_dim, Colors.GREEN)}")
+
+        is_geometric = config.training_mode == 'geometric'
+        geom_color = Colors.GREEN if is_geometric else Colors.RED
+        geom_dims_text = config.geometric.rotation_dimensions if is_geometric else "N/A"
+        print(f" 9. Geometric Dims     : {color_text(geom_dims_text, geom_color)}")
+
+        print(f"10. Advanced Config... : (Edit all other parameters)")
+        print("-" * 29)
+
+        print("\n[S] Start Training")
         print("[E] Exit to Main Menu")
         
         choice = input("\nEnter a number to edit, or a command (S/E): ").lower()
 
         try:
             if choice == '1':
-                mode = input(f"Enter architecture [gnn, hgnn, orthogonal, ghost] [{config.architecture_mode}]: ")
-                if mode in ['gnn', 'hgnn', 'orthogonal', 'ghost']: config.architecture_mode = mode
+                modes = ['gnn', 'hgnn', 'orthogonal', 'ghost']
+                mode_choice = input(f"Enter architecture [{', '.join(modes)}] [{config.architecture_mode}]: ")
+                if mode_choice in modes: 
+                    config.architecture_mode = mode_choice
             elif choice == '2':
                 config.run_name = input(f"Enter run name [{config.run_name}]: ") or config.run_name
             elif choice == '3':
@@ -538,18 +605,35 @@ def train_new_model_menu():
             elif choice == '4':
                 config.num_experts = int(input(f"Enter num experts [{config.num_experts}]: ") or config.num_experts)
             elif choice == '5':
-                config.ghost.num_ghost_experts = int(input(f"Enter num ghost experts [{config.ghost.num_ghost_experts}]: ") or config.ghost.num_ghost_experts)
+                num_ghosts = input(f"Enter num ghost experts [{config.ghost.num_ghost_experts}]: ")
+                config.ghost.num_ghost_experts = int(num_ghosts) if num_ghosts else config.ghost.num_ghost_experts
             elif choice == '6':
                 config = edit_dataset_menu(config)
             elif choice == '7':
+                modes = ['standard', 'geometric']
+                mode_choice = input(f"Enter training mode [{', '.join(modes)}] [{config.training_mode}]: ")
+                if mode_choice in modes:
+                    config.training_mode = mode_choice
+            elif choice == '8':
+                config.embed_dim = int(input(f"Enter embed dimension [{config.embed_dim}]: ") or config.embed_dim)
+            elif choice == '9':
+                if is_geometric:
+                    dims = input(f"Enter geometric rotation dimensions [{config.geometric.rotation_dimensions}]: ")
+                    config.geometric.rotation_dimensions = int(dims) if dims else config.geometric.rotation_dimensions
+                else:
+                    print(color_text("\nThis option is only available in 'geometric' training mode.", Colors.RED))
+                    input("Press Enter to continue...")
+            elif choice == '10':
                 config = advanced_config_menu(config)
             elif choice == 's':
+                print("\nFinalizing configuration...")
                 config.__post_init__()
                 
                 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
                 tokenizer = AutoTokenizer.from_pretrained('gpt2')
                 tokenizer.pad_token = tokenizer.eos_token
                 
+                print(f"Using device: {device}")
                 print("Instantiating model...")
                 model = MoEModel(config).to(device)
                 config.num_parameters = model.get_total_params()
@@ -569,7 +653,10 @@ def train_new_model_menu():
             elif choice == 'e':
                 return
         except ValueError:
-            print("Invalid input. Please enter a valid number.")
+            print("\n❌ Invalid input. Please enter a valid number.")
+            input("Press Enter to continue...")
+        except Exception as e:
+            print(f"\n❌ An unexpected error occurred: {e}")
             input("Press Enter to continue...")
 
 def main_menu():
@@ -579,7 +666,9 @@ def main_menu():
         print_model_status()
         print("1. Train New Model")
         print("2. Load Model from Checkpoint")
-        print("3. Exit")
+        print("3. Run Inference")
+        print("4. Generate Analysis Plots")
+        print("5. Exit")
         
         choice = input("> ")
         
@@ -588,6 +677,20 @@ def main_menu():
         elif choice == '2':
             load_model_menu()
         elif choice == '3':
+            if not state["model"]:
+                print("\nNo model loaded. Please load a model first.")
+                input("Press Enter to continue...")
+                load_model_menu()
+            else:
+                run_inference_menu()
+        elif choice == '4':
+            if not state["model"]:
+                print("\nNo model loaded. Please load a model first.")
+                input("Press Enter to continue...")
+                load_model_menu()
+            else:
+                generate_plots_menu()
+        elif choice == '5':
             break
         else:
             print("Invalid choice, please try again.")
