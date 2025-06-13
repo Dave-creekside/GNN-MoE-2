@@ -557,9 +557,17 @@ def edit_geometric_config(config: MoEConfig):
     
     return config
 
-def train_new_model_menu():
-    """A wizard for configuring and launching a new training run."""
-    config = MoEConfig()
+def train_new_model_menu(existing_config: MoEConfig = None):
+    """
+    A wizard for configuring and launching a new training run.
+    Can be used for a new model or to evolve an existing one.
+    """
+    if existing_config:
+        config = existing_config
+        config.run_name = f"{config.run_name}_v2" # Suggest a new version name
+        print(color_text("Loaded existing config. Evolving model...", Colors.YELLOW))
+    else:
+        config = MoEConfig()
 
     while True:
         clear_screen()
@@ -629,22 +637,34 @@ def train_new_model_menu():
                 print("\nFinalizing configuration...")
                 config.__post_init__()
                 
+                # Create the run-specific checkpoint directory
+                config.checkpoint_dir = os.path.join("checkpoints", config.run_name)
+                os.makedirs(config.checkpoint_dir, exist_ok=True)
+                
                 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
                 tokenizer = AutoTokenizer.from_pretrained('gpt2')
                 tokenizer.pad_token = tokenizer.eos_token
                 
                 print(f"Using device: {device}")
                 print("Instantiating model...")
-                model = MoEModel(config).to(device)
-                config.num_parameters = model.get_total_params()
+                
+                new_model = MoEModel(config).to(device)
+                
+                # If evolving, transfer weights from the old model
+                if existing_config and state["model"]:
+                    print("Transferring weights from old model...")
+                    new_model.load_state_dict(state["model"].state_dict(), strict=False)
+                
+                config.num_parameters = new_model.get_total_params()
                 print(f"✅ Model initialized with {config.num_parameters/1e6:.2f}M parameters.")
 
-                optimizer = create_dynamic_optimizer(model, config)
+                optimizer = create_dynamic_optimizer(new_model, config)
+                scheduler = PrimaryGhostLRScheduler(config, optimizer)
                 
                 state.update({
-                    "config": config, "model": model, "optimizer": optimizer,
-                    "scheduler": None, "tokenizer": tokenizer, "device": device,
-                    "checkpoint_path": os.path.join(config.checkpoint_dir, config.run_name, "checkpoint.pt"),
+                    "config": config, "model": new_model, "optimizer": optimizer,
+                    "scheduler": scheduler, "tokenizer": tokenizer, "device": device,
+                    "checkpoint_path": os.path.join(config.checkpoint_dir, "checkpoint.pt"),
                     "start_epoch": 0, "resume_step": 0, "best_eval_loss": float('inf')
                 })
                 
@@ -666,9 +686,10 @@ def main_menu():
         print_model_status()
         print("1. Train New Model")
         print("2. Load Model from Checkpoint")
-        print("3. Run Inference")
-        print("4. Generate Analysis Plots")
-        print("5. Exit")
+        print("3. Continue Training / Evolve Model")
+        print("4. Run Inference")
+        print("5. Generate Analysis Plots")
+        print("6. Exit")
         
         choice = input("> ")
         
@@ -682,15 +703,22 @@ def main_menu():
                 input("Press Enter to continue...")
                 load_model_menu()
             else:
-                run_inference_menu()
+                train_new_model_menu(existing_config=state["config"])
         elif choice == '4':
             if not state["model"]:
                 print("\nNo model loaded. Please load a model first.")
                 input("Press Enter to continue...")
                 load_model_menu()
             else:
-                generate_plots_menu()
+                run_inference_menu()
         elif choice == '5':
+            if not state["model"]:
+                print("\nNo model loaded. Please load a model first.")
+                input("Press Enter to continue...")
+                load_model_menu()
+            else:
+                generate_plots_menu()
+        elif choice == '6':
             break
         else:
             print("Invalid choice, please try again.")

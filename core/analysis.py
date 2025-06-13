@@ -87,6 +87,10 @@ def plot_learning_rates(df, output_path):
 
 def plot_ghost_metrics(df, output_path):
     """Plot ghost activations and saturation level."""
+    if 'ghost_activations' not in df.columns or 'saturation_level' not in df.columns:
+        print("   ⚠️ Missing ghost_activations or saturation_level data. Skipping ghost metrics plot.")
+        return
+        
     fig, ax1 = plt.subplots(figsize=(12, 7))
 
     # Plot saturation level on the first y-axis
@@ -104,7 +108,8 @@ def plot_ghost_metrics(df, output_path):
         ax2.plot(activations_df.index, activations_df[col], label=f'Ghost {i} Activation', alpha=0.7)
     
     ax2.set_ylabel('Activation Level')
-    ax2.legend(loc='upper right')
+    if ax2.get_legend_handles_labels()[0]:
+        ax2.legend(loc='upper right')
     
     plt.title('Ghost Activations and Saturation vs. Steps')
     fig.tight_layout()
@@ -164,17 +169,32 @@ def plot_expert_load_distribution(df, output_path):
     # Aggregate loads across all time steps
     all_loads = []
     for loads_entry in df['expert_loads']:
-        if loads_entry:
+        if loads_entry and isinstance(loads_entry, dict):
             all_loads.append(loads_entry)
     
     if not all_loads:
         print("   ⚠️ Expert load data is empty. Skipping load distribution.")
         return
     
-    # Calculate mean loads across time steps
+    # Calculate mean loads across time steps with proper error handling
     load_keys = all_loads[0].keys()
-    mean_loads = {key: np.mean([load_entry[key] for load_entry in all_loads]) 
-                  for key in load_keys}
+    mean_loads = {}
+    
+    with np.errstate(all='ignore'):
+        for key in load_keys:
+            load_values = []
+            for load_entry in all_loads:
+                if key in load_entry and isinstance(load_entry[key], (int, float, np.number)):
+                    load_values.append(load_entry[key])
+            
+            if load_values:
+                mean_loads[key] = np.mean(load_values)
+            else:
+                mean_loads[key] = 0.0
+    
+    if not mean_loads:
+        print("   ⚠️ No valid expert load values found. Skipping load distribution.")
+        return
     
     plt.figure(figsize=(12, 6))
     experts = list(mean_loads.keys())
@@ -198,6 +218,10 @@ def plot_expert_load_distribution(df, output_path):
 
 def plot_saturation_activation_phase(df, output_path):
     """Create scatter plot of saturation vs ghost activation levels."""
+    if 'ghost_activations' not in df.columns or 'saturation_level' not in df.columns:
+        print("   ⚠️ Missing ghost_activations or saturation_level data. Skipping saturation-activation phase plot.")
+        return
+
     plt.figure(figsize=(10, 8))
     
     # Create scatter plot for each ghost expert
@@ -231,6 +255,10 @@ def plot_saturation_activation_phase(df, output_path):
 
 def plot_expert_activation_evolution(df, output_path):
     """Plot how each expert's activation evolves over time."""
+    if 'ghost_activations' not in df.columns:
+        print("   ⚠️ Missing ghost_activations data. Skipping expert activation evolution plot.")
+        return
+
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
     
     # Plot ghost activations
@@ -242,7 +270,8 @@ def plot_expert_activation_evolution(df, output_path):
     ax1.set_title('Ghost Expert Activation Evolution')
     ax1.set_xlabel('Training Step')
     ax1.set_ylabel('Activation Level')
-    ax1.legend()
+    if ax1.get_legend_handles_labels()[0]:
+        ax1.legend()
     ax1.grid(True, alpha=0.3)
     
     # Plot orthogonality and saturation evolution (with robust column checking)
@@ -517,37 +546,40 @@ def plot_rotation_magnitude_heatmap(df, output_path):
 
 def plot_expert_activation_correlation_heatmap(df, output_path):
     """Plot correlation heatmap of expert activations across training steps."""
-    # This requires expert activation data across steps - for now use expert loads as a proxy
-    if 'expert_loads' not in df.columns:
+    if 'expert_loads' not in df.columns or df['expert_loads'].isna().all():
         print("   ⚠️ No expert loads data found. Skipping activation correlation heatmap.")
         return
-    
-    # Extract primary expert activations across all steps
-    expert_activations = []
-    for loads_entry in df['expert_loads']:
-        if loads_entry and isinstance(loads_entry, dict) and 'primary' in loads_entry:
-            expert_activations.append(loads_entry['primary'])
-    
+
+    expert_activations = [d.get('primary', []) for d in df['expert_loads'].dropna()]
+    expert_activations = [e for e in expert_activations if e]
+
     if len(expert_activations) < 2:
-        print("   ⚠️ Need at least 2 timesteps for correlation analysis. Skipping activation correlation heatmap.")
+        print("   ⚠️ Need at least 2 timesteps with primary expert data for correlation. Skipping heatmap.")
         return
-    
-    # Convert to matrix: [timesteps, experts]
+
     try:
         activation_matrix = np.array(expert_activations)
-        num_experts = activation_matrix.shape[1]
-        
-        if num_experts < 2:
-            print("   ⚠️ Need at least 2 experts for correlation analysis. Skipping activation correlation heatmap.")
+        if activation_matrix.ndim != 2 or activation_matrix.shape[1] < 2:
+            print("   ⚠️ Insufficient expert data for correlation. Skipping heatmap.")
             return
+            
+        activation_matrix[~np.isfinite(activation_matrix)] = 0
         
-        # Compute correlation matrix
-        correlation_matrix = np.corrcoef(activation_matrix.T)  # Transpose to get [experts, timesteps]
+        if np.all(np.var(activation_matrix, axis=0) < 1e-9):
+            print("   ⚠️ No variance in expert activations. Skipping correlation heatmap.")
+            return
+
+        with np.errstate(divide='ignore', invalid='ignore'):
+            correlation_matrix = np.corrcoef(activation_matrix, rowvar=False)
         
+        if np.isnan(correlation_matrix).all():
+            print("   ⚠️ Could not compute a valid correlation matrix. Skipping heatmap.")
+            return
+
         plt.figure(figsize=(10, 8))
         sns.heatmap(correlation_matrix, annot=True, cmap='RdYlBu_r', center=0, fmt='.3f',
-                    xticklabels=[f'Expert {i+1}' for i in range(num_experts)],
-                    yticklabels=[f'Expert {i+1}' for i in range(num_experts)],
+                    xticklabels=[f'Expert {i+1}' for i in range(activation_matrix.shape[1])],
+                    yticklabels=[f'Expert {i+1}' for i in range(activation_matrix.shape[1])],
                     cbar_kws={'label': 'Correlation Coefficient'})
         
         plt.title('Expert Activation Correlation Matrix\n(Across Training Steps)')
@@ -833,44 +865,28 @@ def run_analysis(log_path):
     mode = detect_training_mode(df, config_data)
     print(f"   Detected training mode: '{mode}'. Generating relevant plots.")
 
-    # Always generate these plots
+    # --- Generate All Plots ---
     plot_losses(df, os.path.join(output_dir, "plot_losses.png"))
     plot_perplexity(df, os.path.join(output_dir, "plot_perplexity.png"))
     plot_learning_rates(df, os.path.join(output_dir, "plot_learning_rates.png"))
+    plot_expert_connection_heatmap(df, os.path.join(output_dir, "plot_expert_connections_heatmap.png"))
+    plot_expert_load_distribution(df, os.path.join(output_dir, "plot_expert_load_distribution.png"))
+    plot_expert_activation_correlation_heatmap(df, os.path.join(output_dir, "plot_expert_activation_correlation_heatmap.png"))
+    plot_expert_activation_timeline_heatmap(df, os.path.join(output_dir, "plot_expert_activation_timeline_heatmap.png"))
 
-    # Plot Geometric-specific plots
+    if 'ghost_activations' in df.columns:
+        plot_ghost_metrics(df, os.path.join(output_dir, "plot_ghost_metrics.png"))
+        plot_saturation_activation_phase(df, os.path.join(output_dir, "plot_saturation_activation_phase.png"))
+        plot_expert_activation_evolution(df, os.path.join(output_dir, "plot_expert_activation_evolution.png"))
+
     if mode == 'geometric':
         plot_rotation_angles_evolution(df, os.path.join(output_dir, "plot_rotation_angles_evolution.png"))
         plot_geometric_loss_components(df, os.path.join(output_dir, "plot_geometric_loss_components.png"))
         plot_expert_specialization_metrics(df, os.path.join(output_dir, "plot_expert_specialization_metrics.png"))
-        
-        # Revolutionary geometric-specific heatmaps 🚀
         plot_rotation_pattern_similarity_heatmap(df, os.path.join(output_dir, "plot_rotation_pattern_similarity_heatmap.png"))
         plot_rotation_magnitude_heatmap(df, os.path.join(output_dir, "plot_rotation_magnitude_heatmap.png"))
-        plot_expert_activation_correlation_heatmap(df, os.path.join(output_dir, "plot_expert_activation_correlation_heatmap.png"))
-        
-        # 🎨 CUTTING-EDGE SEABORN VISUALIZATIONS 🎨
         plot_geometric_loss_distribution_violin(df, os.path.join(output_dir, "plot_geometric_loss_distribution_violin.png"))
         plot_rotation_evolution_ridgeline(df, os.path.join(output_dir, "plot_rotation_evolution_ridgeline.png"))
         plot_loss_component_relationships_pairplot(df, os.path.join(output_dir, "plot_loss_component_relationships_pairplot.png"))
-        plot_expert_activation_timeline_heatmap(df, os.path.join(output_dir, "plot_expert_activation_timeline_heatmap.png"))
-        
-        # Also plot ghost metrics if available (geometric + ghost combination)
-        if 'ghost_activations' in df.columns and 'saturation_level' in df.columns:
-            plot_ghost_metrics(df, os.path.join(output_dir, "plot_ghost_metrics.png"))
-            plot_expert_load_distribution(df, os.path.join(output_dir, "plot_expert_load_distribution.png"))
-            plot_saturation_activation_phase(df, os.path.join(output_dir, "plot_saturation_activation_phase.png"))
-            plot_expert_activation_evolution(df, os.path.join(output_dir, "plot_expert_activation_evolution.png"))
 
-    # Plot HGNN-specific plots
-    if mode in ['hgnn', 'orthogonal', 'ghost', 'geometric']:
-        plot_expert_connection_heatmap(df, os.path.join(output_dir, "plot_expert_connections_heatmap.png"))
-
-    # Plot Ghost-specific plots (for pure ghost mode)
-    if mode == 'ghost':
-        plot_ghost_metrics(df, os.path.join(output_dir, "plot_ghost_metrics.png"))
-        plot_expert_load_distribution(df, os.path.join(output_dir, "plot_expert_load_distribution.png"))
-        plot_saturation_activation_phase(df, os.path.join(output_dir, "plot_saturation_activation_phase.png"))
-        plot_expert_activation_evolution(df, os.path.join(output_dir, "plot_expert_activation_evolution.png"))
-    
     print("   ✅ Analysis and plotting complete.")
