@@ -1,0 +1,18 @@
+{
+  "dataset_source": "huggingface",
+  "dataset_name": "wikitext",
+  "dataset_config_name": "wikitext-103-v1",
+  "tokenizer": "gpt2",
+  "max_seq_length": 512,
+  "vocab_size": 50257,
+  "num_train_samples": 2000,
+  "num_eval_samples": 400,
+  "train_shape": [
+    2000,
+    512
+  ],
+  "eval_shape": [
+    400,
+    512
+  ]
+}

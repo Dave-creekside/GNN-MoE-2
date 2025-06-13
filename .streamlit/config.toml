@@ -1,0 +1,14 @@
+[server]
+# Disable file watcher to avoid PyTorch compatibility issues
+fileWatcherType = "none"
+
+[theme]
+# Optional: Clean theme settings
+primaryColor = "#1f77b4"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f0f2f6"
+textColor = "#262730"
+
+[browser]
+# Open browser automatically
+gatherUsageStats = false

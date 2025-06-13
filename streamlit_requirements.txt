@@ -1,0 +1,17 @@
+# Streamlit Dashboard Requirements
+# Add these to your main requirements.txt or install separately for the dashboard
+
+streamlit>=1.28.0
+plotly>=5.17.0
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Optional for enhanced visualizations
+seaborn>=0.12.0
+matplotlib>=3.6.0
+
+# The dashboard also requires the main project dependencies:
+# torch>=2.0.0
+# transformers>=4.30.0
+# datasets>=2.14.0
+# torch-geometric>=2.3.0

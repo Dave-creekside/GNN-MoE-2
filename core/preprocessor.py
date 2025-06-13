@@ -83,16 +83,33 @@ class DatasetPreprocessor:
         try:
             import datasets as hf_datasets
             
+            # SMART FIX: Detect common mistake where dataset/config are swapped
+            if config_name and '/' in config_name and not dataset_name:
+                # Likely mistake: config_name contains the actual dataset name
+                print(f"   🔄 Detected potential config/dataset swap. Trying '{config_name}' as dataset name...")
+                return self.validate_hf_dataset(config_name, "default")
+            
+            if config_name and '/' in config_name and dataset_name and not '/' in dataset_name:
+                # Another common mistake: config has dataset path, dataset has simple name
+                print(f"   🔄 Detected potential config/dataset swap. Swapping '{dataset_name}' <-> '{config_name}'...")
+                return self.validate_hf_dataset(config_name, dataset_name)
+            
             # Check if dataset exists
             try:
                 dataset_info = hf_datasets.get_dataset_infos(dataset_name)
             except Exception as e:
+                # If dataset not found and config looks like a dataset path, suggest fix
+                if config_name and '/' in config_name:
+                    return False, f"Dataset '{dataset_name}' not found. Did you mean to use '{config_name}' as the dataset name instead?", {}
                 return False, f"Dataset '{dataset_name}' not found on Hugging Face Hub.", {}
             
             # Validate config
             if config_name:
                 if config_name not in dataset_info:
                     available_configs = list(dataset_info.keys())
+                    # Special error message if config looks like a dataset path
+                    if '/' in config_name:
+                        return False, f"Config '{config_name}' looks like a dataset name. Please use '{config_name}' as Dataset Name and '{available_configs[0] if available_configs else 'default'}' as Config Name.", {}
                     return False, f"Config '{config_name}' not found. Available: {available_configs}", {}
             else:
                 config_name = list(dataset_info.keys())[0] if dataset_info else None

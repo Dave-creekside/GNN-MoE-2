@@ -30,17 +30,21 @@ def save_checkpoint(state, is_best, checkpoint_dir="checkpoints", filename="chec
         os.makedirs(checkpoint_dir)
     filepath = os.path.join(checkpoint_dir, filename)
     torch.save(state, filepath)
+    
+    # Save config.json every time (not just when is_best)
+    if 'config' in state:
+        config_dict = state['config']
+        config_json_path = os.path.join(checkpoint_dir, "config.json")
+        try:
+            with open(config_json_path, 'w') as f:
+                json.dump(config_dict, f, indent=4)
+        except Exception as e:
+            print(f"Error saving config.json: {e}")
+    
+    # Save best model separately
     if is_best:
         best_model_path = os.path.join(checkpoint_dir, "best_model.pt")
         shutil.copyfile(filepath, best_model_path)
-        if 'config' in state:
-            config_dict = state['config']
-            config_json_path = os.path.join(checkpoint_dir, "config.json")
-            try:
-                with open(config_json_path, 'w') as f:
-                    json.dump(config_dict, f, indent=4)
-            except Exception as e:
-                print(f"Error saving config.json: {e}")
 
 def load_checkpoint(checkpoint_path, model, optimizer=None, scheduler=None):
     if not os.path.exists(checkpoint_path):
