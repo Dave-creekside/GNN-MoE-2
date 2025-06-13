@@ -477,12 +477,16 @@ def advanced_config_menu(config: MoEConfig):
         if config.training_mode == "geometric":
             config = edit_geometric_config(config)
         
+        # If ghost experts are configured, show ghost options
+        if config.ghost.num_ghost_experts > 0:
+            config = edit_ghost_config(config)
+        
         # Continue with other advanced options
         config_dict = config.to_dict()
         # Flatten the config for editing, excluding nested configs
         params_to_edit = {**config_dict}
         params_to_edit.pop('hgnn', None)
-        params_to_edit.pop('ghost', None) 
+        params_to_edit.pop('ghost', None)  # Now handled by edit_ghost_config
         params_to_edit.pop('geometric', None)  # Already handled above
         
         for key, value in params_to_edit.items():
@@ -554,6 +558,45 @@ def edit_geometric_config(config: MoEConfig):
         lambda_sched = input(f"Lambda rotation scheduling [curriculum/adaptive/fixed] [{config.geometric.lambda_rotation_scheduling}]: ")
         if lambda_sched in ['curriculum', 'adaptive', 'fixed']:
             config.geometric.lambda_rotation_scheduling = lambda_sched
+    
+    return config
+
+def edit_ghost_config(config: MoEConfig):
+    """Sub-menu for ghost expert configuration."""
+    
+    print("\n--- Ghost Expert Configuration ---")
+    
+    if config.ghost.num_ghost_experts > 0:
+        print("\nGhost Expert Parameters:")
+        
+        # Core ghost parameters
+        activation_thresh = input(f"Ghost activation threshold [{config.ghost.ghost_activation_threshold}]: ")
+        if activation_thresh:
+            config.ghost.ghost_activation_threshold = float(activation_thresh)
+        
+        ghost_lr = input(f"Ghost learning rate [{config.ghost.ghost_learning_rate}]: ")
+        if ghost_lr:
+            config.ghost.ghost_learning_rate = float(ghost_lr)
+        
+        activation_sched = input(f"Ghost activation schedule [gradual/binary/selective] [{config.ghost.ghost_activation_schedule}]: ")
+        if activation_sched in ['gradual', 'binary', 'selective']:
+            config.ghost.ghost_activation_schedule = activation_sched
+        
+        # Monitoring and coupling
+        print("\nMonitoring & Learning Rate Coupling:")
+        monitoring_window = input(f"Saturation monitoring window [{config.ghost.saturation_monitoring_window}]: ")
+        if monitoring_window:
+            config.ghost.saturation_monitoring_window = int(monitoring_window)
+        
+        lr_coupling = input(f"Ghost LR coupling [inverse/complementary] [{config.ghost.ghost_lr_coupling}]: ")
+        if lr_coupling in ['inverse', 'complementary']:
+            config.ghost.ghost_lr_coupling = lr_coupling
+        
+        background_learning = input(f"Ghost background learning [true/false] [{config.ghost.ghost_background_learning}]: ")
+        if background_learning.lower() in ['true', 'false']:
+            config.ghost.ghost_background_learning = background_learning.lower() == 'true'
+    else:
+        print("\nNo ghost experts configured. Set num_ghost_experts > 0 to enable ghost parameters.")
     
     return config
 
