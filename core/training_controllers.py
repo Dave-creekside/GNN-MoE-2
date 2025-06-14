@@ -150,16 +150,17 @@ class StandardTrainingController(TrainingController):
         return [self.scheduler]
     
     def get_current_metrics(self) -> Dict[str, Any]:
-        """Return current standard training metrics."""
+        """Return current standard training metrics with standardized field names."""
         if not self.metrics_history['loss']:
             return {'loss': 0.0, 'learning_rate': self.config.learning_rate}
         
         return {
             'loss': self.metrics_history['loss'][-1],
             'learning_rate': self.metrics_history['learning_rate'][-1] if self.metrics_history['learning_rate'] else self.config.learning_rate,
-            'orthogonality': self.metrics_history['orthogonality'][-1] if self.metrics_history['orthogonality'] else 0.0,
-            'expert_entropy': self.metrics_history['expert_entropy'][-1] if self.metrics_history['expert_entropy'] else 0.0,
-            'ghost_activations': self.metrics_history['ghost_activations'][-1] if self.metrics_history['ghost_activations'] else 0
+            'orthogonality_preservation': self.metrics_history.get('orthogonality_preservation', [0.0])[-1],
+            'expert_specialization': self.metrics_history.get('expert_specialization', [0.0])[-1],
+            'active_ghosts': self.metrics_history.get('active_ghosts', [0])[-1],
+            'saturation_level': self.metrics_history.get('saturation_level', [0.0])[-1]
         }
     
     def _compute_expert_orthogonality(self) -> float:
