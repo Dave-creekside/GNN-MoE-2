@@ -63,14 +63,45 @@ class BackgroundTrainingManager:
         return True
     
     def stop_training(self):
-        """Stop background training."""
+        """Stop background training with proper resource cleanup."""
         if self.is_running and self.training_thread:
             self.stop_event.set()
-            # Give the thread some time to clean up
+            
+            # Give the thread some time to clean up gracefully
             self.training_thread.join(timeout=5.0)
             
+            # If thread is still alive, force cleanup
+            if self.training_thread.is_alive():
+                print("⚠️ Training thread didn't stop gracefully, forcing cleanup...")
+        
+        # Force resource cleanup regardless
+        self._cleanup_resources()
         self.is_running = False
         stop_training_session()
+        
+        # Notify completion
+        self.progress_queue.put({
+            'type': 'status',
+            'message': "⏹️ Training stopped by user",
+            'stage': 'stopped'
+        })
+    
+    def _cleanup_resources(self):
+        """Forcefully cleanup GPU memory and resources."""
+        try:
+            # Clear GPU cache if available
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+            
+            # Force garbage collection
+            import gc
+            gc.collect()
+            
+            print("🧹 GPU memory and resources cleaned up")
+            
+        except Exception as e:
+            print(f"Warning: Error during resource cleanup: {e}")
     
     def is_training_active(self) -> bool:
         """Check if training is currently active."""
@@ -289,7 +320,23 @@ class BackgroundTrainingManager:
                 self._update_progress(f"Epoch {epoch+1} complete - Train Loss: {epoch_loss/num_batches:.4f}, Eval Loss: {eval_loss:.4f}")
         
         if not self.stop_event.is_set():
-            self._update_progress("Training completed successfully!")
+            # Training completed naturally - send completion notification
+            self._update_progress("🎉 Training completed successfully!")
+            self.progress_queue.put({
+                'type': 'status',
+                'message': "🎉 Training completed successfully!",
+                'stage': 'completed'
+            })
+            
+            # Final completion notification  
+            self.progress_queue.put({
+                'type': 'completion',
+                'message': "Training finished - all epochs completed",
+                'final_loss': best_eval_loss if 'best_eval_loss' in locals() else None
+            })
+        
+        # Always cleanup resources when training ends
+        self._cleanup_resources()
     
     def _evaluate_model(self, model, eval_loader, device, config):
         """Evaluate model and return loss."""

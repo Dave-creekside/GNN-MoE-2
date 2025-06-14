@@ -472,6 +472,8 @@ def main():
         
         # Process different types of updates
         status_messages = []
+        completion_message = None
+        
         for update in updates:
             if update['type'] == 'metrics':
                 from utils.state_management import add_training_datapoint
@@ -485,6 +487,14 @@ def main():
                 )
             elif update['type'] == 'status':
                 status_messages.append(update['message'])
+                # Check for completion/stop messages
+                if update.get('stage') in ['completed', 'stopped']:
+                    completion_message = update['message']
+            elif update['type'] == 'completion':
+                # Training completed - show completion notification
+                completion_message = update['message']
+                if update.get('final_loss'):
+                    completion_message += f" (Final Loss: {update['final_loss']:.4f})"
             elif update['type'] == 'error':
                 st.error(update['message'])
         
@@ -495,6 +505,16 @@ def main():
                 with st.expander("📡 Training Status", expanded=True):
                     for message in status_messages[-3:]:  # Show last 3 status messages
                         st.write(message)
+        
+        # Show completion notification prominently
+        if completion_message:
+            if "completed successfully" in completion_message.lower():
+                st.success(completion_message)
+                st.balloons()  # Celebratory effect for completion
+            elif "stopped" in completion_message.lower():
+                st.warning(completion_message)
+            else:
+                st.info(completion_message)
         
         time.sleep(2)
         st.rerun()
