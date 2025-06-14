@@ -149,6 +149,7 @@ def start_training_session(config: MoEConfig):
         'current_epoch': 0,
         'current_step': 0,
         'total_epochs': config.epochs,
+        'total_steps': None,  # Will be set when first batch info is available
         'current_loss': None,
         'loss_delta': None,
         'start_time': datetime.now(),

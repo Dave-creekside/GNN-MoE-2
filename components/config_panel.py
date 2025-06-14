@@ -54,14 +54,13 @@ def render_config_panel() -> MoEConfig:
     # Core Architecture Settings
     st.subheader("🏗️ Architecture")
     
-    # Architecture mode selection
-    architecture_options = ["gnn", "hgnn", "orthogonal", "ghost", "geometric"]
+    # Architecture mode selection - CORRECTED: geometric is a training mode, not architecture
+    architecture_options = ["gnn", "hgnn", "orthogonal", "ghost"]
     architecture_descriptions = {
         "gnn": "Basic GNN coupling between experts",
-        "hgnn": "Hypergraph coupling for complex relationships",
+        "hgnn": "Hypergraph coupling for complex relationships", 
         "orthogonal": "HGNN + orthogonality constraints",
-        "ghost": "All features + adaptive ghost experts",
-        "geometric": "Revolutionary geometric constrained learning"
+        "ghost": "All features + adaptive ghost experts"
     }
     
     selected_architecture = st.selectbox(

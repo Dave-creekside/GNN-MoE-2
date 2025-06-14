@@ -154,9 +154,20 @@ class BackgroundTrainingManager:
             
             # Step 2: Training preparation
             self._update_progress("🔧 Preparing training components...")
+            
+            # Calculate total steps and send to dashboard
+            max_batches = len(train_loader) if config.max_batches_per_epoch == -1 else min(len(train_loader), config.max_batches_per_epoch)
+            total_steps = max_batches * config.epochs
+            
+            # Send total steps to main thread via queue
+            self.progress_queue.put({
+                'type': 'training_state_update',
+                'updates': {'total_steps': total_steps}
+            })
+            
             self.progress_queue.put({
                 'type': 'status',
-                'message': f"🔧 Epochs: {config.epochs}, Batch size: {config.batch_size}",
+                'message': f"🔧 Epochs: {config.epochs}, Batch size: {config.batch_size}, Total steps: {total_steps}",
                 'stage': 'training_prep'
             })
             
@@ -187,8 +198,23 @@ class BackgroundTrainingManager:
             })
             
         finally:
+            # Ensure cleanup happens regardless of how training ended
+            self._cleanup_resources()
             self.is_running = False
-            stop_training_session()
+            
+            # Send training session stop message to main thread
+            self.progress_queue.put({
+                'type': 'training_state_update',
+                'updates': {'is_active': False, 'last_update': datetime.now()}
+            })
+            
+            # Send final status update if we haven't already
+            if not self.stop_event.is_set():
+                self.progress_queue.put({
+                    'type': 'status',
+                    'message': "🏁 Training session ended",
+                    'stage': 'finished'
+                })
     
     def _run_training_with_callbacks(self, model, train_loader, eval_loader, device, config):
         """Run training with progress callbacks for dashboard updates."""
@@ -401,15 +427,14 @@ class BackgroundTrainingManager:
     
     def _update_progress(self, message: str):
         """Update progress message."""
-        try:
-            # Update session state with progress message
-            update_training_state({
+        # Send progress message to main thread via queue instead of accessing session state
+        self.progress_queue.put({
+            'type': 'training_state_update',
+            'updates': {
                 'progress_message': message,
                 'last_update': datetime.now()
-            })
-        except Exception:
-            # Silently fail if we can't update progress
-            pass
+            }
+        })
 
 # Global training manager instance
 _training_manager = None

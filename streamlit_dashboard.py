@@ -148,18 +148,17 @@ def main():
         
         # 2. Step Progress (total across all epochs)
         current_step = training_state.get('current_step', 0)
-        # Calculate total estimated steps (rough estimate: current progress * total epochs / current epoch)
-        if current_epoch > 0 and current_step > 0:
-            estimated_steps_per_epoch = max(1, current_step // max(current_epoch, 1))
-            total_estimated_steps = estimated_steps_per_epoch * total_epochs
-            step_progress = min(current_step / max(total_estimated_steps, 1), 1.0)
+        total_steps = training_state.get('total_steps', None)
+        
+        if total_steps and current_step > 0:
+            step_progress = min(current_step / total_steps, 1.0)
+            st.progress(
+                step_progress,
+                text=f"Steps: {current_step}/{total_steps} ({step_progress*100:.1f}%)"
+            )
         else:
-            total_estimated_steps = 100 * total_epochs  # Default estimate
-            step_progress = 0.0
-        st.progress(
-            step_progress,
-            text=f"Steps: {current_step}/{total_estimated_steps if current_step > 0 else '?'} ({step_progress*100:.1f}%)"
-        )
+            # Fallback when total_steps not available yet
+            st.progress(0.0, text=f"Steps: {current_step}/? (0.0%)")
         
         # 3. Active Ghost Experts
         ghost_metrics = training_state.get('ghost_metrics', {})
@@ -463,60 +462,77 @@ def main():
             st.info("No preprocessed datasets directory found.")
     
     # Auto-refresh for live updates and process background training updates
-    if get_training_state()['is_active']:
-        # Process any pending training updates from background thread
-        from utils.background_training import get_training_manager
-        
-        manager = get_training_manager()
-        updates = manager.get_progress_updates()
-        
-        # Process different types of updates
-        status_messages = []
-        completion_message = None
-        
-        for update in updates:
-            if update['type'] == 'metrics':
-                from utils.state_management import add_training_datapoint
-                add_training_datapoint(
-                    step=update['step'],
-                    epoch=update['epoch'],
-                    loss=update['loss'],
-                    geometric_metrics=update.get('geometric_metrics'),
-                    ghost_metrics=update.get('ghost_metrics'),
-                    expert_activations=update.get('expert_activations')
-                )
-            elif update['type'] == 'status':
-                status_messages.append(update['message'])
-                # Check for completion/stop messages
-                if update.get('stage') in ['completed', 'stopped']:
-                    completion_message = update['message']
-            elif update['type'] == 'completion':
-                # Training completed - show completion notification
+    training_state = get_training_state()
+    from utils.background_training import get_training_manager
+    manager = get_training_manager()
+    
+    # Check both session state and background manager state
+    is_session_active = training_state['is_active']
+    is_manager_active = manager.is_training_active()
+    
+    # Process any pending updates regardless of training state (to handle completion messages)
+    updates = manager.get_progress_updates()
+    
+    # Process different types of updates
+    status_messages = []
+    completion_message = None
+    training_finished = False
+    
+    for update in updates:
+        if update['type'] == 'metrics':
+            from utils.state_management import add_training_datapoint
+            add_training_datapoint(
+                step=update['step'],
+                epoch=update['epoch'],
+                loss=update['loss'],
+                geometric_metrics=update.get('geometric_metrics'),
+                ghost_metrics=update.get('ghost_metrics'),
+                expert_activations=update.get('expert_activations')
+            )
+        elif update['type'] == 'training_state_update':
+            # Update session state from background thread
+            from utils.state_management import update_training_state
+            update_training_state(update['updates'])
+        elif update['type'] == 'status':
+            status_messages.append(update['message'])
+            # Check for completion/stop/finished messages
+            if update.get('stage') in ['completed', 'stopped', 'finished']:
                 completion_message = update['message']
-                if update.get('final_loss'):
-                    completion_message += f" (Final Loss: {update['final_loss']:.4f})"
-            elif update['type'] == 'error':
-                st.error(update['message'])
-        
-        # Show recent status messages
-        if status_messages:
-            # Display in the sidebar below training controls
-            with st.sidebar:
-                with st.expander("📡 Training Status", expanded=True):
-                    for message in status_messages[-3:]:  # Show last 3 status messages
-                        st.write(message)
-        
-        # Show completion notification prominently
-        if completion_message:
-            if "completed successfully" in completion_message.lower():
-                st.success(completion_message)
-                st.balloons()  # Celebratory effect for completion
-            elif "stopped" in completion_message.lower():
-                st.warning(completion_message)
-            else:
-                st.info(completion_message)
-        
+                training_finished = True
+        elif update['type'] == 'completion':
+            # Training completed - show completion notification
+            completion_message = update['message']
+            if update.get('final_loss'):
+                completion_message += f" (Final Loss: {update['final_loss']:.4f})"
+            training_finished = True
+        elif update['type'] == 'error':
+            st.error(update['message'])
+            training_finished = True
+    
+    # Show recent status messages
+    if status_messages:
+        # Display in the sidebar below training controls
+        with st.sidebar:
+            with st.expander("📡 Training Status", expanded=True):
+                for message in status_messages[-3:]:  # Show last 3 status messages
+                    st.write(message)
+    
+    # Show completion notification prominently
+    if completion_message:
+        if "completed successfully" in completion_message.lower():
+            st.success(completion_message)
+            st.balloons()  # Celebratory effect for completion
+        elif "stopped" in completion_message.lower():
+            st.warning(completion_message)
+        else:
+            st.info(completion_message)
+    
+    # Only continue auto-refresh if training is actually still active
+    if (is_session_active or is_manager_active) and not training_finished:
         time.sleep(2)
+        st.rerun()
+    elif training_finished:
+        # Training just finished - do one final rerun to update UI, then stop
         st.rerun()
 
 if __name__ == "__main__":

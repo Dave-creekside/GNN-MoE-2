@@ -159,52 +159,51 @@ class StandardTrainingController(TrainingController):
         }
     
     def _compute_expert_orthogonality(self) -> float:
-        """Compute orthogonality metric for experts."""
-        if not hasattr(self.model, 'moe_layers'):
+        """Compute orthogonality metric for experts based on architecture."""
+        if not self.config.use_orthogonal_loss:
             return 0.0
-        
-        total_orthogonality = 0.0
-        num_layers = 0
-        
-        for layer in self.model.moe_layers:
-            if hasattr(layer, 'experts'):
-                # Get expert weight matrices
-                expert_weights = []
-                for expert in layer.experts:
-                    if hasattr(expert, 'linear1'):
-                        expert_weights.append(expert.linear1.weight.flatten())
-                
-                if len(expert_weights) > 1:
-                    # Compute pairwise orthogonality
-                    expert_matrix = torch.stack(expert_weights)
-                    normalized_weights = F.normalize(expert_matrix, dim=1)
-                    similarity_matrix = torch.mm(normalized_weights, normalized_weights.t())
-                    
-                    # Off-diagonal elements should be close to 0 for orthogonality
-                    mask = ~torch.eye(similarity_matrix.size(0), dtype=torch.bool, device=similarity_matrix.device)
-                    off_diagonal_mean = similarity_matrix[mask].abs().mean()
-                    
-                    # Convert to orthogonality score (1 - similarity)
-                    orthogonality = 1.0 - off_diagonal_mean.item()
-                    total_orthogonality += orthogonality
-                    num_layers += 1
-        
-        return total_orthogonality / num_layers if num_layers > 0 else 0.0
+            
+        # Use the model's built-in orthogonality computation
+        try:
+            orthogonality_loss = self.model.get_total_orthogonality_loss(self.step_count)
+            # Convert loss to score (higher score = more orthogonal)
+            return max(0.0, 1.0 - orthogonality_loss.item()) if orthogonality_loss.item() > 0 else 1.0
+        except Exception:
+            return 0.0
     
     def _compute_expert_entropy(self) -> float:
         """Compute expert activation entropy (diversity measure)."""
-        # This would require tracking expert activations during forward pass
-        # For now, return a placeholder
-        return 0.0
+        try:
+            # Get expert loads from the model
+            expert_loads = self.model.get_expert_activation_loads()
+            if expert_loads and expert_loads.get('primary'):
+                primary_loads = expert_loads['primary']
+                if len(primary_loads) > 1:
+                    # Compute entropy of expert activation distribution
+                    loads_tensor = torch.tensor(primary_loads, dtype=torch.float32)
+                    loads_norm = F.softmax(loads_tensor, dim=0)
+                    entropy = -torch.sum(loads_norm * torch.log(loads_norm + 1e-8))
+                    return entropy.item()
+            return 0.0
+        except Exception:
+            return 0.0
     
     def _count_ghost_activations(self) -> int:
         """Count number of active ghost experts."""
-        if not hasattr(self.model, 'ghost_experts_active'):
+        if not self.config.ghost.num_ghost_experts > 0:
             return 0
-        
-        # This would require tracking ghost expert activations
-        # For now, return a placeholder
-        return 0
+            
+        try:
+            # Get ghost activations from the model
+            ghost_activations = self.model.get_current_ghost_activations()
+            if ghost_activations is not None:
+                # Count ghosts with activation > threshold
+                threshold = self.config.ghost.ghost_activation_threshold
+                active_count = (ghost_activations > threshold).sum().item()
+                return int(active_count)
+            return 0
+        except Exception:
+            return 0
 
 
 class GeometricTrainingController(TrainingController):

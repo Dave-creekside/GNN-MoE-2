@@ -117,6 +117,7 @@ class MoEConfig:
 
     def __post_init__(self):
         """Set feature flags based on architecture_mode for easy configuration."""
+        # CORRECTED: Only handle actual architectures, not training modes
         if self.architecture_mode == 'gnn':
             self.use_hypergraph_coupling = False
             self.use_orthogonal_loss = False
@@ -133,12 +134,12 @@ class MoEConfig:
             self.use_hypergraph_coupling = True
             self.use_orthogonal_loss = True
             # num_ghost_experts is configured by the user
-        elif self.architecture_mode == 'geometric':
-            # Geometric mode focuses on rotation-based training
-            self.use_hypergraph_coupling = False  # Pure geometric, no hypergraph
-            self.use_orthogonal_loss = True  # Orthogonality is key for geometric
-            self.ghost.num_ghost_experts = 0  # No ghost experts in pure geometric
-            self.geometric.enabled = True  # Auto-enable geometric training
+        else:
+            raise ValueError(f"Unknown architecture_mode: '{self.architecture_mode}'. Must be one of: 'gnn', 'hgnn', 'orthogonal', 'ghost'")
+        
+        # Enable geometric training based on training_mode (independent of architecture)
+        if self.training_mode == 'geometric':
+            self.geometric.enabled = True
         
         # Calculate max_steps if not provided
         if self.max_steps is None:
