@@ -125,12 +125,16 @@ class StandardTrainingController(TrainingController):
         self.scheduler.step()
         self.optimizer.zero_grad()
         
-        # Update metrics
+        # Update metrics with standardized field names to match plot expectations
+        orthogonality_score = self._compute_expert_orthogonality()
+        ghost_count = self._count_ghost_activations()
+        
         current_metrics = {
             'learning_rate': self.scheduler.get_last_lr()[0] if hasattr(self.scheduler, 'get_last_lr') else self.config.learning_rate,
-            'orthogonality': self._compute_expert_orthogonality(),
-            'expert_entropy': self._compute_expert_entropy(),
-            'ghost_activations': self._count_ghost_activations()
+            'orthogonality_preservation': orthogonality_score,  # Standardized name for plots
+            'expert_specialization': self._compute_expert_entropy(),  # Maps to specialization
+            'active_ghosts': ghost_count,  # Standardized name for ghost plots
+            'saturation_level': self._compute_saturation_level()  # Add saturation monitoring
         }
         
         self.update_metrics(loss.item(), current_metrics)
@@ -204,6 +208,20 @@ class StandardTrainingController(TrainingController):
             return 0
         except Exception:
             return 0
+    
+    def _compute_saturation_level(self) -> float:
+        """Compute expert saturation level for ghost activation monitoring."""
+        if not self.config.ghost.num_ghost_experts > 0:
+            return 0.0
+            
+        try:
+            # Get saturation metrics from the model
+            saturation_metrics = self.model.get_last_saturation_metrics()
+            if saturation_metrics and 'saturation_level' in saturation_metrics:
+                return float(saturation_metrics['saturation_level'])
+            return 0.0
+        except Exception:
+            return 0.0
 
 
 class GeometricTrainingController(TrainingController):

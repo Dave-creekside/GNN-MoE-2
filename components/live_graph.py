@@ -19,7 +19,7 @@ from core.config import MoEConfig
 from utils.state_management import get_plot_data, get_training_state
 
 def get_available_plot_types(config: MoEConfig) -> List[str]:
-    """Get available plot types based on configuration."""
+    """Get available plot types based on architecture and training configuration."""
     
     base_plots = [
         "Training Loss",
@@ -27,18 +27,24 @@ def get_available_plot_types(config: MoEConfig) -> List[str]:
         "Learning Rate Schedule"
     ]
     
-    # Add geometric plots if geometric training is enabled
-    if config.training_mode == "geometric" or config.architecture_mode == "geometric":
+    # Add orthogonality plots if orthogonal loss is enabled (architecture-based)
+    if config.use_orthogonal_loss:
+        orthogonal_plots = [
+            "Orthogonality Preservation",
+            "Expert Specialization"
+        ]
+        base_plots.extend(orthogonal_plots)
+    
+    # Add geometric rotation plots if geometric training is enabled (training-mode-based)
+    if config.training_mode == "geometric":
         geometric_plots = [
             "Rotation Angles Evolution",
-            "Orthogonality Preservation",
-            "Expert Specialization",
             "Geometric Loss Components",
             "3D Rotation Visualization"
         ]
         base_plots.extend(geometric_plots)
     
-    # Add ghost plots if ghost experts are enabled
+    # Add ghost plots if ghost experts are enabled (architecture-based)
     if config.ghost.num_ghost_experts > 0:
         ghost_plots = [
             "Ghost Expert Activation",
@@ -47,12 +53,13 @@ def get_available_plot_types(config: MoEConfig) -> List[str]:
         ]
         base_plots.extend(ghost_plots)
     
-    # Add architecture-specific plots
+    # Add hypergraph plots if hypergraph coupling is enabled (architecture-based)
     if config.use_hypergraph_coupling:
-        base_plots.extend([
+        hypergraph_plots = [
             "Expert Connection Heatmap",
             "Hypergraph Edge Weights"
-        ])
+        ]
+        base_plots.extend(hypergraph_plots)
     
     return base_plots
 

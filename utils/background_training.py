@@ -287,18 +287,27 @@ class BackgroundTrainingManager:
                     ghost_metrics = {}
                     expert_activations = {}
                     
-                    if config.training_mode == 'geometric':
-                        geometric_metrics = {
-                            'rotation_efficiency': current_metrics.get('rotation_efficiency', 0),
-                            'orthogonality_preservation': current_metrics.get('orthogonality_preservation', 0),
-                            'expert_specialization': current_metrics.get('expert_specialization', 0),
-                            'avg_rotation_magnitude': current_metrics.get('avg_rotation_magnitude', 0)
-                        }
+                    # Extract standardized metrics for all architectures/training modes
+                    geometric_metrics = {}
+                    ghost_metrics = {}
                     
+                    # Add orthogonality and specialization to geometric_history for ALL architectures that support it
+                    if current_metrics.get('orthogonality_preservation') is not None:
+                        geometric_metrics['orthogonality_preservation'] = current_metrics['orthogonality_preservation']
+                    if current_metrics.get('expert_specialization') is not None:
+                        geometric_metrics['expert_specialization'] = current_metrics['expert_specialization']
+                    
+                    # Add geometric training specific metrics
+                    if config.training_mode == 'geometric':
+                        geometric_metrics.update({
+                            'rotation_efficiency': current_metrics.get('rotation_efficiency', 0),
+                            'avg_rotation_magnitude': current_metrics.get('avg_rotation_magnitude', 0)
+                        })
+                    
+                    # Add ghost metrics for ALL architectures that support ghosts
                     if config.ghost.num_ghost_experts > 0:
                         ghost_metrics = {
                             'active_ghosts': current_metrics.get('active_ghosts', 0),
-                            'avg_activation': current_metrics.get('avg_ghost_activation', 0),
                             'saturation_level': current_metrics.get('saturation_level', 0)
                         }
                     
